@@ -1478,10 +1478,10 @@ flowchart TB
         Two canonical bandit policies. Both take a context vector x and pick an arm a to optimize an expected linear reward.
       </p>
       <p style={{marginTop:8, fontWeight:600}}>LinUCB (Upper Confidence Bound) per arm:</p>
-      <VIS.Equation display tex="\\hat{a} = \\arg\\max_a \\;\\; \\hat\\theta_a^\\top x \\;+\\; \\alpha \\sqrt{x^\\top A_a^{-1} x}" />
+      <VIS.Equation display tex="\hat{a} = \arg\max_a \;\; \hat\theta_a^\top x \;+\; \alpha \sqrt{x^\top A_a^{-1} x}" />
       <p>The first term is the expected reward; the second is a confidence-interval bonus that shrinks as the arm is tried more. The bonus drives exploration.</p>
       <p style={{marginTop:8, fontWeight:600}}>Thompson sampling per arm:</p>
-      <VIS.Equation display tex="\\tilde\\theta_a \\sim \\mathcal{N}(\\hat\\theta_a, A_a^{-1}\\sigma^2),\\quad \\hat{a} = \\arg\\max_a \\;\\; \\tilde\\theta_a^\\top x" />
+      <VIS.Equation display tex="\tilde\theta_a \sim \mathcal{N}(\hat\theta_a, A_a^{-1}\sigma^2),\quad \hat{a} = \arg\max_a \;\; \tilde\theta_a^\top x" />
       <p>Sample a parameter from each arm's posterior and pick the arm with the highest sampled value. Exploration emerges from posterior variance.</p>
       <p style={{marginTop:8}}>
         Both reduce to "pick the arm whose expected reward might be highest given uncertainty." LinUCB is deterministic given a tie-break; Thompson is randomized. Both update the arm's parameters using observed reward only for the arm chosen — never for the arms not pulled. That counterfactual gap is the bandit's defining structure.
