@@ -2151,8 +2151,8 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> the N fold scores from LOO are nearly identical because each training set differs from another by only one row. Highly correlated scores defeat the averaging.</>}
         options={[
           {key:"a", text:"Training on N−1 rows overfits more aggressively than training on (k−1)N/k rows, raising per-fold variance to compensate."},
-          {key:"b", text:"The N models in LOO share (N−2)/N of their training rows pairwise; their errors are nearly perfectly correlated, so averaging them does not reduce variance below the σ²·ρ floor.", correct:true},
-          {key:"c", text:"With k=N the validation set is exactly one row, which by Chebyshev's inequality must have infinite variance."},
+          {key:"b", text:"The N LOO models share (N−2)/N of their rows pairwise, so their errors are near-perfectly correlated — averaging can't push variance below the σ²·ρ floor.", correct:true},
+          {key:"c", text:"With k=N the validation set is exactly one row, which by Chebyshev's inequality is therefore forced to have infinite estimator variance."},
           {key:"d", text:"LOO requires retraining N times, and accumulated floating-point error from N optimizer runs dominates the variance."},
         ]}
         trap={<>(a) is the textbook reading turned upside down — overfitting affects bias, not directly the estimator variance. (c) is a confused application of an inequality that does not apply here. (d) invents a numerical-precision story.</>}
@@ -2278,9 +2278,9 @@ flowchart TB
         title="A team asks: 'should we use 5-fold or 10-fold?' Which factor is the most important to consider first?"
         scenario={<><em>Discriminating insight:</em> the answer is rarely about statistical purity — almost always about compute budget vs how stable an estimate you actually need.</>}
         options={[
-          {key:"a", text:"The number of features; high-dimensional models require larger k by Glivenko-Cantelli theorem."},
-          {key:"b", text:"How long a single training run takes — k = compute multiplier. If one run takes 10 hours, k=10 is a week vs k=5 in 2 days.", correct:true},
-          {key:"c", text:"Always use 10-fold; the literature unambiguously supports it over 5-fold."},
+          {key:"a", text:"The number of features in the model; high-dimensional models require a larger k by the Glivenko-Cantelli theorem."},
+          {key:"b", text:"How long one training run takes — k is a compute multiplier. At 10 hours per run, k=10 is a week versus k=5 in two days.", correct:true},
+          {key:"c", text:"Always use 10-fold cross-validation; the empirical literature unambiguously supports it over 5-fold in every setting."},
           {key:"d", text:"Always use 5-fold; the central limit theorem requires exactly 5 samples to converge."},
         ]}
         trap={<>(b) invents a theorem application. (c) overstates literature consensus — 5 and 10 are both defensible. (d) misapplies CLT.</>}
@@ -2294,8 +2294,8 @@ flowchart TB
         title="In a regression problem with continuous target, you want to stratify k-fold by the target. How?"
         scenario={<><em>Discriminating insight:</em> StratifiedKFold expects discrete labels. To stratify on a continuous target, you must bin it first.</>}
         options={[
-          {key:"a", text:"StratifiedKFold handles continuous targets automatically via an internal quantile binner — just pass the raw y directly into the constructor."},
-          {key:"b", text:"Bin the continuous target into quantile bins (e.g., 10 deciles) and stratify on the bin index.", correct:true},
+          {key:"a", text:"StratifiedKFold handles continuous targets automatically via an internal quantile binner — just pass raw y to it."},
+          {key:"b", text:"Bin the continuous target into quantile bins (e.g. 10 deciles) and pass the bin index as the stratification label to StratifiedKFold.", correct:true},
           {key:"c", text:"Stratification is undefined on continuous targets; use plain KFold and absorb the resulting per-fold metric variance into the std."},
           {key:"d", text:"Apply a log transform to y first; StratifiedKFold then operates on the log-uniform target by histogram-binning the transformed values."},
         ]}
@@ -2342,9 +2342,9 @@ flowchart TB
         title="What does it mean that 'every sample is validated exactly once' in k-fold?"
         scenario={<><em>Discriminating insight:</em> the partition of N rows into k folds is a DISJOINT cover. Each row lands in exactly one validation fold across the k rounds.</>}
         options={[
-          {key:"a", text:"The folds partition the dataset; each row appears as validation in one round and as training in the other k−1 rounds.", correct:true},
+          {key:"a", text:"The folds partition the data; each row is validation in one round and training in the other k−1 rounds.", correct:true},
           {key:"b", text:"Each row is validated by k different models and the k predictions are averaged into a per-row score."},
-          {key:"c", text:"k-fold scores rows according to a uniform distribution across the k validations."},
+          {key:"c", text:"k-fold scores every row according to a uniform distribution spread across all of the k separate validations."},
           {key:"d", text:"Validation predictions are deduplicated post-hoc to avoid double-counting any row."},
         ]}
         trap={<>(b) describes bagging-style ensemble prediction, not the CV partition. (c) and (d) are invented.</>}
@@ -2472,8 +2472,8 @@ flowchart TB
         options={[
           {key:"a", text:"Report the median CV score instead of the mean across the 300 trials; the median is unbiased under selection while the mean is the biased quantity."},
           {key:"b", text:"Repeat the same 5-fold CV with three different random seeds and report the average; the selection bias from HPO is washed out by averaging across the seed dimension."},
-          {key:"c", text:"Switch from 5-fold to 10-fold CV; the additional folds reduce the bias of the maximum-of-300-trials estimate so that it vanishes asymptotically in the limit."},
-          {key:"d", text:"Run nested CV — outer CV provides the unbiased estimate while inner CV drives Optuna's HPO per outer fold.", correct:true},
+          {key:"c", text:"Switch from 5-fold to 10-fold CV; the extra folds reduce the maximum-of-300-trials bias so it vanishes asymptotically."},
+          {key:"d", text:"Run nested CV — the outer CV loop provides the unbiased estimate while the inner loop drives Optuna's HPO within each outer fold.", correct:true},
         ]}
         trap={<>(b) does not fix selection bias — you would still pick the best of the averaged scores. (c) makes the estimate more precise but still selection-biased. (d) invents a property of the median.</>}
         lens={<>The clean fix: hold out a fresh test set before HPO starts, and report on that. The expensive fix: nested CV. Either way, the data that drove HPO must be different from the data that drives the final reported number, or the report is overstated.</>}
