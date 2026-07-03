@@ -2277,10 +2277,10 @@ flowchart LR
         title="P3 — Batch size 1 inference: does LayerNorm work?"
         scenario={<><em>Discriminating insight:</em> LN's statistics do not depend on N. A team serves a GPT-style LM at batch size 1 (one request at a time). They worry that whichever norm is in the model will collapse at N=1.</>}
         options={[
-          {key:"a", text:"Both BatchNorm and LayerNorm break at batch size 1 because variance over a single sample is undefined."},
-          {key:"b", text:"LayerNorm works fine — its (μ, σ) are reduced over H within each token, so a single sample contains H values and the variance is well-defined. BatchNorm is the one that breaks at N=1.", correct:true},
+          {key:"a", text:"Both BatchNorm and LayerNorm break down at batch size 1, because the variance computed over just a single sample is entirely undefined."},
+          {key:"b", text:"LayerNorm works fine — its (μ, σ) reduce over H within each token, so one sample holds H values and variance is well-defined. BatchNorm is what breaks at N=1.", correct:true},
           {key:"c", text:"LayerNorm requires at least N=2 to compute cross-sample running statistics; serving at N=1 forces a fallback to InstanceNorm semantics."},
-          {key:"d", text:"Neither breaks at N=1 because both use frozen running statistics at eval time."},
+          {key:"d", text:"Neither of them breaks at N=1, because both norms simply use frozen running statistics computed earlier at evaluation time."},
         ]}
         trap={<>(a) conflates the two norms. (c) invents a running-statistics requirement LN doesn't have. (d) gets BN's eval mechanism roughly right but extends it to LN, which has no buffers.</>}
         lens={<>LayerNorm at N=1 reduces over H (typically 256-8192 values) per token — variance is well-conditioned. This is the central reason transformers, which often run at small N in production, adopted LN over BN.</>}
@@ -2294,9 +2294,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> the reduction axis is what separates them — not placement, not parameters, not the downstream task. A senior asks a candidate: "What's the one-sentence difference between BatchNorm and LayerNorm?"</>}
         options={[
           {key:"a", text:"They differ only in placement: BN before activation, LN after — otherwise the math and reduction axis are identical."},
-          {key:"b", text:"BN is for regression heads, LN is for classification heads; the choice is task-driven."},
-          {key:"c", text:"BN has γ, β; LN has no affine parameters and only standardizes."},
-          {key:"d", text:"BN reduces over the BATCH dim per channel (statistics mix samples); LN reduces over the FEATURE dim within one sample (statistics are batch-independent).", correct:true},
+          {key:"b", text:"BN is meant for regression heads while LN is meant for classification heads; the entire choice between them is fundamentally task-driven."},
+          {key:"c", text:"BN has the learnable γ, β affine, while LN has no affine parameters at all and instead only ever standardizes the input."},
+          {key:"d", text:"BN reduces over the BATCH dim per channel (stats mix samples); LN reduces over the FEATURE dim within one sample (stats are batch-independent).", correct:true},
         ]}
         trap={<>(a) is the placement myth. (b) invents a task-driven distinction; LN dominates transformers because of length/batch independence, not the head type. (c) is factually wrong: LN has γ, β per feature.</>}
         lens={<>The axis is the whole story. Once you know which dim is reduced, every downstream property follows: batch-size independence, length independence, no train/eval split, no running buffers, no SyncBN equivalent needed.</>}
@@ -2325,10 +2325,10 @@ flowchart LR
         title="P6 — Pre-LN vs Post-LN at 24+ layers"
         scenario={<><em>Discriminating insight:</em> why deep stacks chose Pre-LN. A team builds a 48-layer transformer and finds that Post-LN diverges in the first 2k steps unless they add a 10k-step LR warmup; Pre-LN trains stably from step 0 with no warmup.</>}
         options={[
-          {key:"a", text:"Post-LN puts the normalization on the residual stream; gradients to early layers must pass through every LayerNorm, which amplifies and de-stabilizes them at depth. Pre-LN keeps an un-normalized residual, so gradients flow cleanly.", correct:true},
+          {key:"a", text:"Post-LN normalizes on the residual stream, so gradients to early layers pass through every LayerNorm, de-stabilizing them at depth. Pre-LN keeps an un-normalized residual, so gradients flow cleanly.", correct:true},
           {key:"b", text:"Pre-LN computes statistics over a different axis than Post-LN — Pre-LN reduces over (T, H) jointly, which is more stable than Post-LN's H-only reduction."},
-          {key:"c", text:"Pre-LN automatically scales the residual by 1/√depth, which is the actual cause of stability; the LN position is incidental."},
-          {key:"d", text:"Post-LN is fundamentally broken in PyTorch but works in JAX; the warmup masks the framework bug rather than fixing the math."},
+          {key:"c", text:"Pre-LN automatically scales the residual by a factor of 1/√depth, and that is the actual cause of the stability; the LN position itself is incidental."},
+          {key:"d", text:"Post-LN is fundamentally broken in PyTorch but happens to work in JAX; the warmup merely masks that framework-level bug rather than actually fixing the underlying math."},
         ]}
         trap={<>(b) invents an axis difference (both use the same reduction). (c) misattributes the stability to a depth-scaling factor that LN doesn't apply. (d) is a fabricated framework jab.</>}
         lens={<>Pre-LN: y = x + Attn(LN(x)). The residual path x carries unnormalized signal end-to-end, so ∂loss/∂x at layer 1 has a clean identity contribution from every later layer. Post-LN: y = LN(x + Attn(x)) — every gradient backprops through an LN, which rescales it. At depth ≥ 12 this rescaling compounds, and you need a warmup so the model's early activations don't blow up before the LN parameters adapt. See Xiong et al. 2020 "On Layer Normalization in the Transformer Architecture."</>}
@@ -2357,8 +2357,8 @@ flowchart LR
         title="P8 — Why does LayerNorm typically not need a warmup with Pre-LN?"
         scenario={<><em>Discriminating insight:</em> gradient magnitude through the residual path. A reviewer asks why GPT-2 (Pre-LN) trains stably at LR 3e-4 from step 0 while the original Transformer (Post-LN) needed a 4000-step linear warmup at the same LR.</>}
         options={[
-          {key:"a", text:"Pre-LN models clip gradients automatically inside the LayerNorm forward pass — no external warmup needed."},
-          {key:"b", text:"Pre-LN's residual stream is un-normalized end-to-end, so gradients to early layers have a clean identity path and don't accumulate the LN's rescaling factor across depth.", correct:true},
+          {key:"a", text:"Pre-LN models automatically clip their gradients inside the LayerNorm forward pass itself, so no external learning-rate warmup is ever needed."},
+          {key:"b", text:"Pre-LN's residual is un-normalized end-to-end, so gradients to early layers have a clean identity path and don't accumulate LN's rescaling across depth.", correct:true},
           {key:"c", text:"Pre-LN uses a smaller learning rate by convention, so no warmup is needed; same LR with Post-LN would also be fine."},
           {key:"d", text:"Pre-LN uses RMSNorm under the hood, which is more numerically stable and removes the need for warmup."},
         ]}
@@ -2391,7 +2391,7 @@ flowchart LR
         options={[
           {key:"a", text:"LayerNorm averages over (T, H) jointly, so longer sequences contribute more samples to (μ, σ) and dominate the statistics — same length-bias as BN."},
           {key:"b", text:"LayerNorm requires padding the batch to a fixed sequence length T before the forward pass; otherwise PyTorch raises a runtime error."},
-          {key:"c", text:"LayerNorm reduces over H per (sample, position), so two tokens — even in different sequences of different lengths — get independent statistics. Length doesn't enter at all.", correct:true},
+          {key:"c", text:"LayerNorm reduces over H per (sample, position), so two tokens — even in sequences of different lengths — get independent statistics. Length never enters.", correct:true},
           {key:"d", text:"LayerNorm masks out padding automatically using the attention mask, so padded positions don't affect statistics."},
         ]}
         trap={<>(a) is BN's length-bias misapplied to LN. (b) confuses a tensor-shape requirement (batches must be rectangular, hence padding) with a per-token reduction requirement (LN doesn't pool across positions). (d) invents an automatic mask-passing API.</>}
@@ -2405,7 +2405,7 @@ flowchart LR
         title="P11 — Fine-tuning a pretrained transformer with batch size 2: LN behavior?"
         scenario={<><em>Discriminating insight:</em> LN has no running stats to corrupt, unlike BN. A team fine-tunes BERT-base on a 600-document medical task with batch size 2 (memory constrained on a single 16 GB GPU). Compared to the same situation with a BN-heavy CNN backbone, what's different?</>}
         options={[
-          {key:"a", text:"LN has no running statistics that small-batch fine-tuning could degrade — every forward pass uses fresh per-token (μ, σ). The classic small-batch BN failure mode simply doesn't exist for LN.", correct:true},
+          {key:"a", text:"LN has no running statistics for small-batch fine-tuning to degrade — every pass uses fresh per-token (μ, σ). The classic small-batch BN failure mode doesn't exist for LN.", correct:true},
           {key:"b", text:"LN aggregates running statistics like BN does, so the same small-batch noise applies and you must call .eval() on each LN submodule."},
           {key:"c", text:"LN fails completely at batch size 2 because its variance estimate has only 2 samples — InstanceNorm would be safer."},
           {key:"d", text:"LN's (γ, β) become numerically unstable at small batch because gradient estimates are noisy; freezing them with requires_grad=False is the standard recipe."},
@@ -2421,9 +2421,9 @@ flowchart LR
         title="P12 — What does ε in the LayerNorm denominator do?"
         scenario={<><em>Discriminating insight:</em> ε's role beyond "avoiding NaN." The denominator √(σ² + ε) has ε = 1e−5 by default in PyTorch's nn.LayerNorm.</>}
         options={[
-          {key:"a", text:"ε is a numerical-stability term that prevents divide-by-zero when σ² ≈ 0 and also bounds the gradient w.r.t. variance from blowing up when variance is tiny.", correct:true},
-          {key:"b", text:"ε is the LayerNorm momentum — increasing it makes the per-token statistics adapt more slowly across tokens."},
-          {key:"c", text:"ε is an L2 regularization coefficient on (γ, β), applied implicitly through the normalization."},
+          {key:"a", text:"ε is a numerical-stability term preventing divide-by-zero when σ² ≈ 0, and it also bounds the variance gradient from blowing up when variance is tiny.", correct:true},
+          {key:"b", text:"ε is really the LayerNorm momentum parameter — increasing its value makes the per-token statistics adapt considerably more slowly across tokens."},
+          {key:"c", text:"ε is really an L2 regularization coefficient acting on the (γ, β) parameters, applied to them implicitly by way of the normalization step."},
           {key:"d", text:"ε is a confidence-interval width used to clip outlier features before computing the mean and variance."},
         ]}
         trap={<>(b) invents a momentum (LN has no running stats, so no momentum). (c) invents a regularization role. (d) fabricates an activation-clipping step.</>}
@@ -2439,7 +2439,7 @@ flowchart LR
         options={[
           {key:"a", text:"Yes — LN computes statistics across the batch dim, so different batch sizes produce different normalization."},
           {key:"b", text:"Yes — even though LN itself is per-token, the model's overall floating-point reduction order changes with batch size and the logits drift by a few ULPs."},
-          {key:"c", text:"No — LN's statistics are per-(sample, token); batch composition cannot influence the transform for any specific token. Predictions are identical up to floating-point reductions.", correct:true},
+          {key:"c", text:"No — LN's stats are per-(sample, token); batch composition can't influence any specific token's transform. Predictions are identical up to floating-point reductions.", correct:true},
           {key:"d", text:"No — but only if SyncBN-equivalent LN synchronization is enabled; vanilla LN produces different outputs at different batch sizes."},
         ]}
         trap={<>(a) projects BN's batch-coupling onto LN. (b) is partially right about floating-point ULP-level drift (caused by reduction-order effects in CUDA kernels), but the question is about LN's batch-dependence, which is zero. (d) invents a SyncLN that doesn't exist (and isn't needed).</>}
@@ -2454,8 +2454,8 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> RMSNorm skips the mean-centering step but keeps the rescaling and γ. A team migrating from LayerNorm to RMSNorm in a 7B model asks "is this safe?"</>}
         options={[
           {key:"a", text:"RMSNorm skips both mean-centering and γ — it's just division by RMS — and that's why it's 30% faster but slightly lossy."},
-          {key:"b", text:"RMSNorm drops the per-feature β bias, replacing β with a constant zero; γ and mean-centering are unchanged."},
-          {key:"c", text:"RMSNorm drops the mean-centering step (no μ subtraction) and the β bias; it keeps division by RMS(x) and the learnable γ. ~10-15% faster; empirically matches LN quality in LLaMA / Mistral / Gemma.", correct:true},
+          {key:"b", text:"RMSNorm drops only the per-feature β bias, replacing β with a constant zero everywhere; the γ scale and the mean-centering step both remain completely unchanged."},
+          {key:"c", text:"RMSNorm drops mean-centering (no μ subtraction) and the β bias; it keeps division by RMS(x) and the learnable γ. ~10-15% faster; matches LN quality across modern LLMs.", correct:true},
           {key:"d", text:"RMSNorm reduces over the batch dim like BN but skips the running statistics; it works in transformers only at large batch."},
         ]}
         trap={<>(a) is half-right (mean-centering dropped, β dropped) but drops γ too — γ is essential and is kept. (b) gets the kept-vs-dropped pair reversed. (d) confuses the reduction axis.</>}
@@ -2469,9 +2469,9 @@ flowchart LR
         title="P15 — Cross-sample information leakage: BN vs LN"
         scenario={<><em>Discriminating insight:</em> LN's forward pass is per-sample at every layer. A team training under differential privacy wants per-sample gradients to be well-defined. They ask which norm is compatible.</>}
         options={[
-          {key:"a", text:"LayerNorm is compatible because its forward (and therefore backward) is per-sample — no cross-sample coupling at any layer. BatchNorm couples samples through (μ_B, σ_B), making per-sample gradients ill-defined.", correct:true},
-          {key:"b", text:"Both are compatible; per-sample gradient is just ∂loss/∂x_i for a single sample i and neither norm changes that."},
-          {key:"c", text:"Neither is compatible; both have implicit cross-sample dependencies through γ and β being shared parameters."},
+          {key:"a", text:"LayerNorm is compatible: its forward (and backward) is per-sample, with no cross-sample coupling. BatchNorm couples samples via (μ_B, σ_B), making per-sample gradients ill-defined.", correct:true},
+          {key:"b", text:"Both norms are compatible; the per-sample gradient is just ∂loss/∂x_i for a single sample i, and neither of the two norms changes that fact."},
+          {key:"c", text:"Neither of them is compatible; both norms have implicit cross-sample dependencies, introduced through their γ and β being shared parameters across the batch."},
           {key:"d", text:"BatchNorm is compatible because at eval it uses frozen running stats; LayerNorm is incompatible because its statistics are computed live."},
         ]}
         trap={<>(b) misses that BN's forward couples samples through the batch reduction. (c) confuses shared parameters (fine for DP) with shared random variables (the actual problem). (d) inverts the answer.</>}
@@ -2485,10 +2485,10 @@ flowchart LR
         title="P16 — Bias term in the preceding Linear when followed by LayerNorm"
         scenario={<><em>Discriminating insight:</em> LN subtracts the per-sample mean across H. A code review asks: "nn.Linear before nn.LayerNorm — should the Linear have a bias?"</>}
         options={[
-          {key:"a", text:"Partially redundant — Linear's bias is a length-H vector (b_1,...,b_H); LN's mean subtraction absorbs only its across-H mean, while per-feature deviations (b_h − mean(b)) survive (re-scaled by γ). bias=False is a near-equivalent convention, not an exact identity.", correct:true},
+          {key:"a", text:"Partially redundant — Linear's bias is a length-H vector; LN absorbs only its across-H mean, while per-feature deviations (b_h − mean(b)) survive re-scaled by γ. bias=False is near-equivalent, not exact.", correct:true},
           {key:"b", text:"Fully redundant — Linear's bias is a single learnable shift applied to every output, so LN's per-sample mean subtraction cancels it exactly. bias=False before LN is algebraically identical to bias=True."},
-          {key:"c", text:"No — but only when the Linear's bias is initialized to zero; once it's learned, the redundancy disappears."},
-          {key:"d", text:"Yes — Linear's bias is needed to initialize LN's β correctly during the first few warmup steps."},
+          {key:"c", text:"No — but only in the case where the Linear's bias is initialized to exactly zero; once it has been learned, the redundancy completely disappears."},
+          {key:"d", text:"Yes — the Linear's bias term is genuinely needed in order to initialize LN's β parameter correctly during the very first few warmup steps of training."},
         ]}
         trap={<>(b) is the textbook trap: it assumes Linear's bias is a scalar applied uniformly across H, which would make it fully absorbed. But nn.Linear's bias is a vector of length H — only its across-H mean is absorbed; the per-feature deviations (b_h − mean(b)) pass through. (c) invents an initialization condition. (d) is a fabricated dependency.</>}
         lens={<>Subtle: Linear's bias is a length-H vector (b_1, ..., b_H). After LN subtracts the per-sample mean of (W·x + b), the constant part of b — specifically its mean across H — is removed, but the per-feature deviations (b_h − mean(b)) survive into the post-LN output (re-scaled by γ). So Linear bias before LN is NOT fully redundant — only its overall offset is. Most transformer implementations still set bias=False before LN for the convention, but the equivalence is incomplete.</>}
@@ -2502,9 +2502,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> the LN layer becomes parameter-free. A team sets nn.LayerNorm(H, elementwise_affine=False) for an experimental run.</>}
         options={[
           {key:"a", text:"LN reverts to BatchNorm semantics — it normalizes across the batch dim because there are no per-feature parameters to make per-feature normalization meaningful."},
-          {key:"b", text:"LN becomes an identity layer; without γ, β the forward pass collapses to a no-op."},
-          {key:"c", text:"LN still normalizes (subtract per-sample mean, divide by per-sample std), but skips the γ-β affine — the output is unit-variance and zero-mean per token, with no learnable scale.", correct:true},
-          {key:"d", text:"PyTorch raises a RuntimeError because LN requires elementwise_affine=True for backprop to be well-defined."},
+          {key:"b", text:"LN just becomes an identity layer; without the γ, β parameters the entire forward pass simply collapses into a no-op."},
+          {key:"c", text:"LN still normalizes (subtract per-sample mean, divide by per-sample std) but skips the γ-β affine — output is unit-variance, zero-mean per token, with no learnable scale.", correct:true},
+          {key:"d", text:"PyTorch will raise a RuntimeError here, because LayerNorm strictly requires elementwise_affine=True in order for its backprop to be well-defined."},
         ]}
         trap={<>(a) invents a fallback. (b) misunderstands what γ, β do (they don't replace the normalization). (d) is a fabricated guard.</>}
         lens={<>elementwise_affine=False removes γ and β; the layer still does the standardization. Output is strictly zero-mean and unit-variance per token. This is useful for ablations (how much does the affine actually buy you?) and for some style-transfer architectures. Most production transformers leave the affine on.</>}
@@ -2517,9 +2517,9 @@ flowchart LR
         title="P18 — normalized_shape: what does the argument mean?"
         scenario={<><em>Discriminating insight:</em> normalized_shape tells LN which trailing dimensions to reduce over. A reviewer asks: "What does nn.LayerNorm([H]) vs nn.LayerNorm([T, H]) actually do?"</>}
         options={[
-          {key:"a", text:"LayerNorm([H]) reduces over only the last dim (the feature dim) per token. LayerNorm([T, H]) reduces over the last TWO dims jointly — over all tokens of a sequence at once.", correct:true},
-          {key:"b", text:"Both forms reduce over the last dim; the second form is just a hint to the optimizer that T is the sequence dim."},
-          {key:"c", text:"LayerNorm([T, H]) raises an error because LN requires a 1D normalized_shape."},
+          {key:"a", text:"LayerNorm([H]) reduces over only the last dim (features) per token. LayerNorm([T, H]) reduces over the last TWO dims jointly — all tokens of a sequence at once.", correct:true},
+          {key:"b", text:"Both of the forms reduce over only the last dim; the second form is really just a hint to the optimizer that the T axis is the sequence dimension."},
+          {key:"c", text:"LayerNorm([T, H]) actually raises a runtime error, because LN strictly requires a one-dimensional normalized_shape argument."},
           {key:"d", text:"LayerNorm([H]) reduces over the batch dim N (because H is the feature dim); LayerNorm([T, H]) reduces over (N, T) jointly."},
         ]}
         trap={<>(b) loses the "joint reduction" semantics. (c) is false: PyTorch accepts multi-dim normalized_shape. (d) inverts the meaning of normalized_shape — it's the dims TO reduce over, not the dims to keep.</>}
@@ -2533,9 +2533,9 @@ flowchart LR
         title="P19 — Gradient flow through LN's μ and σ"
         scenario={<><em>Discriminating insight:</em> backprop flows through μ and σ as functions of the input, not just through γ and β. A reviewer claims: "LN's gradients only flow through γ and β; μ and σ are constants from the gradient's perspective."</>}
         options={[
-          {key:"a", text:"Correct — μ and σ are computed by reduction (mean / variance), which autograd treats as constants."},
-          {key:"b", text:"Correct — but only for elementwise_affine=False; with γ, β present the statistics participate in backprop."},
-          {key:"c", text:"Wrong — μ and σ are differentiable functions of the input's H features, so backprop computes ∂loss/∂x_i through both terms. This makes the LN backward formula non-trivial.", correct:true},
+          {key:"a", text:"Correct — μ and σ are computed by a reduction (mean and variance), which the autograd engine simply treats as fixed constants."},
+          {key:"b", text:"Correct — but this only holds for elementwise_affine=False; once γ and β are present, the statistics themselves start to participate in the backprop pass."},
+          {key:"c", text:"Wrong — μ and σ are differentiable functions of the input's H features, so backprop flows ∂loss/∂x_i through both. This makes the LN backward formula non-trivial.", correct:true},
           {key:"d", text:"Wrong — but only at training; at eval μ and σ are frozen running buffers, so backprop short-circuits them."},
         ]}
         trap={<>(a), (b) both project an "autograd detaches reductions" myth. (d) projects BN's eval semantics onto LN (LN has no eval-time freezing).</>}
@@ -2549,10 +2549,10 @@ flowchart LR
         title="P20 — InstanceNorm vs LayerNorm: when do they coincide?"
         scenario={<><em>Discriminating insight:</em> for a 1D input (N, H), LN and InstanceNorm reduce over the same axis. A team wonders if they're "the same thing for transformers."</>}
         options={[
-          {key:"a", text:"They're always identical for any input shape, since both reduce per-sample."},
-          {key:"b", text:"For (N, H) inputs they reduce over the same axis (H per sample), so the forward is identical. For (N, C, H, W) inputs they differ: LN reduces over (C, H, W), InstanceNorm reduces over (H, W) per channel.", correct:true},
-          {key:"c", text:"They differ in (γ, β) — LN has them, InstanceNorm doesn't."},
-          {key:"d", text:"They differ in train/eval mode — InstanceNorm has running statistics like BN, LN does not."},
+          {key:"a", text:"They are always completely identical for absolutely any input shape whatsoever, since both of them reduce their statistics per-sample."},
+          {key:"b", text:"For (N, H) they reduce over the same axis (H per sample), so forward is identical. For (N, C, H, W): LN over (C, H, W), InstanceNorm over (H, W) per channel.", correct:true},
+          {key:"c", text:"The two differ in their affine (γ, β) parameters — LayerNorm has them, whereas InstanceNorm simply does not have them at all."},
+          {key:"d", text:"They differ in their train/eval mode behavior — InstanceNorm keeps running statistics much like BN does, while LayerNorm does not."},
         ]}
         trap={<>(a) over-generalizes. (c) is wrong: InstanceNorm has affine=True by default in PyTorch. (d) is half-right by accident: nn.InstanceNorm has track_running_stats=False by default but you can turn it on.</>}
         lens={<>For (N, H) shapes the two coincide (one (μ, σ) per sample, over H). For 4D image inputs they diverge: LN reduces over (C, H, W) per sample (one stat per sample); InstanceNorm reduces over (H, W) per (sample, channel) (C stats per sample). The transformer-relevant case is 1D-like, so the distinction is mostly academic for NLP.</>}
@@ -2566,8 +2566,8 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> LN's reduction is per-sample, so cross-device sync isn't needed. A team training a 70B transformer on 256 GPUs asks: "We use SyncBN for our CNN runs — is there a SyncLayerNorm we should be using here?"</>}
         options={[
           {key:"a", text:"Yes — torch.nn.SyncLayerNorm pools statistics across devices and is recommended for batch sizes < 32 per device."},
-          {key:"b", text:"No — LN's statistics are per-(sample, token); each GPU's local samples don't need to know about other GPUs' samples to compute its norm correctly. There is no SyncLN and none is needed.", correct:true},
-          {key:"c", text:"Yes — Megatron-LM ships a custom AllReduceLayerNorm that's required for tensor-parallel runs."},
+          {key:"b", text:"No — LN's stats are per-(sample, token); each GPU's local samples need nothing from other GPUs to norm correctly. There is no SyncLN and none is needed.", correct:true},
+          {key:"c", text:"Yes — Megatron-LM ships its own custom AllReduceLayerNorm implementation that is strictly required for any of the tensor-parallel training runs."},
           {key:"d", text:"No — but only for sequence-parallel runs; tensor-parallel runs need cross-device LN sync to recombine the sharded hidden dim."},
         ]}
         trap={<>(a) invents an API. (c) misnames a real thing — tensor-parallel LN does need an all-reduce, but the reason is sharding of H across devices, not statistics-pooling. (d) is closer to the truth — but the question is whether sync is needed FOR THE STATISTICS, and the answer is no; even tensor-parallel LN sync is about reassembling a sharded reduction, not pooling stats across batches.</>}
@@ -2582,7 +2582,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> LN's variance over H can lose precision in FP16. A team enables torch.cuda.amp on a transformer and sees occasional loss spikes after a few thousand steps.</>}
         options={[
           {key:"a", text:"LN is FP16-safe because reductions over H are small (H ≤ 8192); the loss spike must be from softmax or matmul, not LN."},
-          {key:"b", text:"LN's reduction over H accumulates x² in FP16, which can lose precision when x is large; PyTorch AMP runs LN in FP32 by default to avoid this.", correct:true},
+          {key:"b", text:"LN's reduction over H accumulates x² in FP16, losing precision when x is large; PyTorch AMP runs LN in FP32 by default to avoid this.", correct:true},
           {key:"c", text:"LN is fundamentally incompatible with FP16; you must convert the entire model to BF16 for any normalization to work."},
           {key:"d", text:"The loss spike is unrelated to LN — it's an FP16 underflow in the attention softmax."},
         ]}
@@ -2597,9 +2597,9 @@ flowchart LR
         title="P23 — Multi-task / multi-domain transformers: any LN drift?"
         scenario={<><em>Discriminating insight:</em> LN has nothing analogous to BN's running-stats drift. A team uses one transformer backbone with three task-specific heads across heterogeneous input distributions, training round-robin. They worry about norm drift.</>}
         options={[
-          {key:"a", text:"LN's statistics are computed fresh per token per forward pass, so there is no cross-task drift. Domain-specific normalization (if needed) must come from γ, β, not from any built-in drift mechanism.", correct:true},
-          {key:"b", text:"LN's running statistics drift toward whichever task ran most recently — same problem as BN."},
-          {key:"c", text:"LN automatically maintains separate per-task statistics when you tag forward passes with task IDs."},
+          {key:"a", text:"LN's stats are computed fresh per token every forward pass, so there is no cross-task drift. Domain-specific normalization must come from γ, β, not any built-in drift.", correct:true},
+          {key:"b", text:"LN's running statistics will drift toward whichever task happened to run most recently — exactly the same running-stats problem that BatchNorm famously has."},
+          {key:"c", text:"LN will automatically maintain separate per-task statistics for you, as long as you tag each of the forward passes with the appropriate task IDs."},
           {key:"d", text:"LN drifts only via its γ, β parameters, which behave like running stats and bias toward the recent task."},
         ]}
         trap={<>(b) projects BN's drift onto LN. (c) invents an API. (d) confuses parameter drift (gradient-driven, on every task) with running-stat drift (EMA-driven, BN-specific).</>}
@@ -2629,10 +2629,10 @@ flowchart LR
         title="P25 — Frozen LayerNorm parameters during PEFT (LoRA, prefix-tuning)"
         scenario={<><em>Discriminating insight:</em> LN's parameter count is tiny but its γ, β are surprisingly important. A team using LoRA on a 7B model wonders whether to leave LN's (γ, β) trainable or freeze them.</>}
         options={[
-          {key:"a", text:"Always freeze LN's (γ, β) during PEFT — they're pretrained and unfreezing them defeats the parameter-efficient purpose."},
-          {key:"b", text:"Common practice varies, but several PEFT papers (BitFit, Houlsby et al.) show that leaving LN's (γ, β) trainable consistently helps quality at near-zero parameter cost — LN params are < 0.1% of total. Many recipes mark them trainable alongside LoRA adapters.", correct:true},
+          {key:"a", text:"You should always freeze LN's (γ, β) during any PEFT run — they are pretrained already, and unfreezing them would defeat the entire parameter-efficient purpose."},
+          {key:"b", text:"Practice varies, but PEFT papers (BitFit, Houlsby et al.) show leaving LN's (γ, β) trainable helps quality at near-zero cost — LN params are < 0.1% of total, marked trainable alongside LoRA.", correct:true},
           {key:"c", text:"LN's (γ, β) are tied to running statistics, so unfreezing them requires unfreezing the running stats too — which would corrupt the pretrained model. Always freeze."},
-          {key:"d", text:"LN's (γ, β) are not learnable in HuggingFace's default LoRA wrapper, so the question is moot — they're already frozen."},
+          {key:"d", text:"LN's (γ, β) are simply not learnable inside HuggingFace's default LoRA wrapper, so the whole question is moot — they are already frozen for you."},
         ]}
         trap={<>(a) is too rigid. (c) projects BN's running-stats coupling onto LN. (d) is a framework-API claim that's either wrong or version-specific; the question is about what you SHOULD do, not the default.</>}
         lens={<>BitFit (Zaken et al. 2021) showed that bias-and-norm-only fine-tuning recovers most of full fine-tuning's gains on GLUE at ~0.1% of the parameter count. LN's γ, β are a natural extension of bias-only tuning and are commonly included in PEFT trainable sets (LoRA + LN being the standard combo). The "tiny but important" property of LN params is a recurring theme in PEFT.</>}
