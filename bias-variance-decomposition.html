@@ -2233,7 +2233,7 @@ flowchart TB
 
     <VIS.Section id="sec-problems" title="Hard problems — diagnose the lens">
       <p style={{color:"#475569", marginBottom: 16}}>
-        Ten interview-grade trap problems. Each scenario carries more context than strictly needed — some details are signal, some are{" "}
+        Eight interview-grade trap problems. Each scenario carries more context than strictly needed — some details are signal, some are{" "}
         <VIS.Term def="Plausible-looking details deliberately included to test whether the candidate can distinguish what matters from what doesn't. A senior bar — junior candidates anchor on the most recent or most colorful detail.">red herrings</VIS.Term>, some are real constraints. Pick the right move(s); reveal the model answer + the trap. Mix of{" "}
         <VIS.Term def="Question type with exactly one correct option. Mode='single' in TrapProblem props. Tests whether the candidate can identify the SINGLE best move under tradeoffs.">single-correct</VIS.Term>,{" "}
         <VIS.Term def="Question type where multiple options are individually correct and the candidate must select them all. Mode='multi'. Tests both recall and discrimination against plausible distractors.">multi-select</VIS.Term>{" "}("select all that apply"), and{" "}
@@ -2266,11 +2266,11 @@ flowchart TB
         title="P2 — Both train and val low: bias, noise, or imbalance?"
         scenario={<>Credit-card fraud detection at a fintech. Logistic regression on 200 features: 12 user-demographic columns, 80 transaction-aggregate features (30/60/90 day windows), 50 merchant-network features, 58 device-fingerprint signals. Positive rate: <strong>0.4% fraud</strong>. Train AUC = 0.62, val AUC = 0.61 — both low and close. Training set: 12M transactions from January-March 2026. Val set: 2M transactions from April 2026. Three people give different advice. Tech lead: "bias problem — train an XGBoost with 1000 trees." Product manager: "the labels are noisy — relabel and retrain LR." Staff engineer: "AUC is misleading on 0.4% positives — switch metrics." Which actions are correct first moves? Select all that apply.</>}
         options={[
-          {key:"a", text:"Train XGBoost 1000 trees immediately to fix the bias."},
-          {key:"b", text:"Have 2-3 experts independently label ~500 transactions; the inter-rater AUC bounds σ².", correct:true},
+          {key:"a", text:"Train an XGBoost with 1000 trees immediately to fix the apparent bias problem."},
+          {key:"b", text:"Have 2-3 experts relabel ~500 transactions; inter-rater agreement bounds σ².", correct:true},
           {key:"c", text:"Switch primary metric from AUC to PR-AUC for the imbalanced setting.", correct:true},
-          {key:"d", text:"Compare the fraud rate in Jan-Mar vs April; investigate any temporal distribution shift.", correct:true},
-          {key:"e", text:"Add another 100 behavioral features to fix the bias."},
+          {key:"d", text:"Compare the fraud rate Jan-Mar vs April to check for temporal shift.", correct:true},
+          {key:"e", text:"Add another 100 behavioral features to the model to fix the apparent bias."},
         ]}
         trap={<>(a) is the tech lead's instinct and the textbook reading — "train ≈ val, both high → bias problem." But it assumes σ² is small. At 0.4% positives, fraud labels are inherently ambiguous (two expert reviewers often disagree on the same transaction); if σ² ≈ 0.35 AUC, XGBoost won't beat the floor. (e) makes the same mistake — throwing features at a noise-limited problem. The PM was right that labels matter but jumped to "relabel everything"; the cheap version is just measuring σ² first. Three other things are also worth doing as PRIORITY checks before model surgery.</>}
         lens={<>Three correct first moves. <strong>(b)</strong> measure σ² — bias-variance decomposition assumes you know the noise floor. <strong>(c)</strong> use PR-AUC because AUC is rank-based and overstates performance at 0.4% positives. <strong>(d)</strong> check temporal distribution shift — Jan-Mar trained, April val, fraud patterns drift. Only AFTER these checks would picking a new model make sense.</>}
@@ -2283,10 +2283,10 @@ flowchart TB
         title="P3 — You 10× the training data and val loss barely moves"
         scenario={<>Two-tower recommendation model for a streaming video service. 4-layer transformer encoder per tower, 256-dim embedding, InfoNCE loss with 32 in-batch negatives, AdamW <code>lr=1e-4</code>. You scale training from <strong>10M → 100M</strong> user-item interactions (same time window, same architecture, same loss, same hardware). Val NDCG@10: 0.41 → 0.43. Train NDCG@10: 0.42 → 0.44. <strong>Both moved together, barely.</strong> The interactions are binary clicks ("user watched this title"). User dwell-time is captured upstream but currently unused in training. Diagnose.</>}
         options={[
-          {key:"a", text:"Variance problem — keep scaling; go to 1B interactions."},
+          {key:"a", text:"Variance problem — just keep scaling the data; push on to 1B interactions."},
           {key:"b", text:"Bias problem — model is too simple; double embedding dim 256→512."},
-          {key:"c", text:"You're at the irreducible noise floor; binary clicks ≠ true preference. Move to dwell-time-weighted soft labels.", correct:true},
-          {key:"d", text:"Distribution shift between train and val — investigate the temporal split."},
+          {key:"c", text:"You're at the noise floor; binary clicks ≠ true preference. Use dwell-time soft labels.", correct:true},
+          {key:"d", text:"Distribution shift between the train and val windows — investigate the temporal split for drift."},
         ]}
         trap={<>(a) leans on scaling laws — "more data always helps." But scaling laws apply when you're NOT yet at the noise floor; when val AND train both refuse to move together as you add data, you're already at σ². (b) is the bigger-model textbook move — but bias-limited problems show train MOVING with capacity. Here both metrics are stuck. (d) is a sanity-check candidate but doesn't explain why TRAIN ALSO stopped improving.</>}
         lens={<>This is the irreducible noise floor σ². When you scale data and both train AND val plateau together, the labels themselves have inherent noise — binary clicks are notoriously noisy on streaming (accidental clicks, autoplay, partial watches). The fix is BETTER LABELS: use dwell-time as soft labels (or as a positive-weighting), or filter out interactions below a watch-time threshold. The dwell-time field mentioned in the scenario is the clue.</>}
@@ -2313,37 +2313,19 @@ flowchart TB
         id="bv-p5"
         difficulty="hard"
         title="P5 — Random forest: 100 → 1000 trees, variance barely drops"
-        scenario={<>Random forest for customer-LTV regression. 100 trees, <code>max_depth=10</code>, <code>mtry=√p</code> (default for regression), bootstrap with replacement, training set fixed at 200k rows. You measure empirical prediction variance ≈ 0.12 across many test inputs. You scale to 1000 trees (10×, same config). Variance now ≈ 0.108 — only a 10% drop. Why such a small improvement?</>}
+        scenario={<>Random forest for customer-LTV regression. 100 trees, <code>max_depth=10</code>, <code>mtry=√p</code> (default for regression), bootstrap with replacement, training set fixed at 200k rows. You measure empirical prediction variance ≈ 0.12 across many test inputs. You scale to 1000 trees (10×, same config). Variance now ≈ 0.1199 — a fraction of a percent. Why almost no improvement?</>}
         options={[
           {key:"a", text:"Bug — more trees should always cut variance proportionally (variance / n)."},
-          {key:"b", text:"Trees are highly correlated (ρ ≈ 0.9) because they share the same training data; ensemble variance asymptotes at σ²·ρ.", correct:true},
-          {key:"c", text:"Bias dominates — adding trees can't fix bias."},
-          {key:"d", text:"mtry is too low — trees are over-decorrelated."},
+          {key:"b", text:"Trees are correlated (ρ ≈ 0.9), so ensemble variance asymptotes at σ²·ρ, not 0.", correct:true},
+          {key:"c", text:"Bias dominates the error here, and adding more trees can never reduce bias."},
+          {key:"d", text:"mtry is set too low, so the trees have become over-decorrelated."},
         ]}
         trap={<>(a) is the textbook ensemble-variance reading — "n trees give σ²/n." That's true ONLY when trees are uncorrelated. (c) confuses what variance tracks (single-tree noise across bootstrap samples) with the test-error implications. (d) reverses the math — mtry TOO LOW gives MORE diversity and LOWER ρ; the issue here is ρ TOO HIGH, which means mtry should go DOWN, not up.</>}
         lens={<>Ensemble variance: Var(avg of n correlated predictions) = σ²·(1-ρ)/n + σ²·ρ. As n → ∞, variance → σ²·ρ, not 0. With ρ ≈ 0.9 (typical for RF on a fixed 200k dataset because trees share most of their bootstrap samples), the floor is ~0.9·σ². 100 → 1000 trees moves you from ~0.901·σ² to ~0.9001·σ² — practically nothing. To actually reduce variance: lower ρ (decorrelate trees) by reducing mtry, deeper subsample fractions, or switch to extra-trees.</>}
         stretch={<>What's the lowest variance you can hope to reach with this ensemble if ρ = 0.9 is fixed by the data?</>}
       />
 
-      <VIS.TrapProblem
-        id="bv-p6"
-        difficulty="hard"
-        multiSelect
-        title="P6 — Optuna 5-fold CV 0.92, test set 0.85: explain the 7-point gap"
-        scenario={<>Churn prediction. XGBoost. 1M total rows split 80/20 (800k train, 200k test, random split, never touched during tuning). On the 800k train, you run 5-fold stratified CV with <strong>Optuna for 300 trials</strong> tuning (max_depth, learning_rate, min_child_weight, subsample, colsample_bytree). CV result: mean AUC = <strong>0.92</strong>, std across folds = 0.01 (very tight). You finally evaluate on the held-out 200k test set: AUC = <strong>0.85</strong>. A 7-point gap. Which factors plausibly explain it? Select all that apply.</>}
-        options={[
-          {key:"a", text:"Optuna's 300 trials overfit to the specific CV folds; Bayesian HPO concentrates samples near CV optima.", correct:true},
-          {key:"b", text:"Model variance — XGBoost is too flexible; reduce max_depth."},
-          {key:"c", text:"Train and test come from different distributions."},
-          {key:"d", text:"The tight CV std (0.01) was misleadingly optimistic — feature correlation across folds inflated apparent stability.", correct:true},
-          {key:"e", text:"200k test is too small to give a reliable AUC estimate."},
-        ]}
-        trap={<>(b) is tempting because "AUC gap = variance problem" is the reflex — but XGBoost variance shows up as fold-to-fold std differences, and the CV std was 0.01 (tight). (c) is wrong: random splits rule out distribution shift by construction. (e) is wrong: 200k is plenty for a stable AUC estimate (CI under 0.005). The real story is more subtle: when you tune HPO on CV scores 300 times, you're not measuring model quality — you're measuring "how well can a sampler exploit CV noise."</>}
-        lens={<>Two correct: <strong>(a)</strong> HPO overfit to CV folds via Optuna's adaptive sampling, and <strong>(d)</strong> tight CV std masked the fact that fold scores were correlated (not independent draws). Together: CV AUC was optimistic by ~0.05-0.07. Fix: hold out a SECOND validation set just for the final HPO selection, or use nested CV (outer fold drives final score, inner fold drives HPO).</>}
-        stretch={<>If you used random search instead of Optuna with the same 300 trials, would the gap shrink? Why?</>}
-      />
-
-      <VIS.TrapProblem
+<VIS.TrapProblem
         id="bv-p7"
         difficulty="hard"
         multiSelect
@@ -2369,35 +2351,16 @@ flowchart TB
         scenario={<>Ridge regression for housing-price prediction. You sweep L2 regularization strength λ over four orders of magnitude. Train and test MSE on the same fixed split: <strong>λ=0</strong> → train 0.10, test 0.85. <strong>λ=0.01</strong> → 0.18, 0.45. <strong>λ=1</strong> → 0.35, 0.40. <strong>λ=100</strong> → 0.80, 0.81. Why does λ=100 make BOTH train AND test worse than λ=1?</>}
         options={[
           {key:"a", text:"Bug — regularization should never make BOTH train and test worse than a smaller λ."},
-          {key:"b", text:"High λ shrinks all weights toward zero; the model degenerates to predicting the mean. Bias dominates.", correct:true},
+          {key:"b", text:"High λ shrinks all weights toward zero; the model degenerates to predicting the mean — bias dominates.", correct:true},
           {key:"c", text:"Test variance is so low at λ=100 you should ship it — production needs stability."},
-          {key:"d", text:"Numerical instability at high λ inflates both errors."},
+          {key:"d", text:"Numerical instability at very high λ inflates both the train and test errors."},
         ]}
         trap={<>(a) misreads the U-curve: bias rises monotonically with λ, but variance also falls — past the sweet spot, bias growth overtakes variance reduction. (c) is a clever-sounding production argument that ignores that test is WORSE at λ=100 than at λ=1. (d) blames math when math is fine.</>}
         lens={<>This is the right end of the bias-variance U-curve. At λ=100, weights are squished so hard the model predicts roughly the training mean for every input — high bias, very low variance, but the bias dominates by miles. Train MSE rising past λ=1 IS the diagnostic: regularization is no longer fixing variance, it's introducing bias. λ=1 is near the sweet spot.</>}
         stretch={<>If you plotted bias² and variance separately across λ, what would each curve look like?</>}
       />
 
-      <VIS.TrapProblem
-        id="bv-p9"
-        difficulty="hard"
-        multiSelect
-        title="P9 — Imbalanced data: AUC 0.95 train / 0.91 val. Senior says ship it."
-        scenario={<>Fraud detection model, 1% positive rate, 50M total transactions. XGBoost with class-weighting. <strong>Train AUC 0.95, val AUC 0.91, val PR-AUC 0.32</strong>. A senior eng says "tight AUC gap, low variance — ship it." You suspect this isn't the full story. Which additional checks should you do before agreeing to ship? Select all that apply.</>}
-        options={[
-          {key:"a", text:"Plot precision-recall curves on val — AUC is rank-based and overstates performance on imbalanced data.", correct:true},
-          {key:"b", text:"Measure precision at the specific recall you'll deploy (e.g., precision @ recall=0.6).", correct:true},
-          {key:"c", text:"Run a calibration check (reliability diagram) — well-ranked ≠ well-calibrated probabilities.", correct:true},
-          {key:"d", text:"Switch the primary loss from CE to log-loss to fix the imbalance."},
-          {key:"e", text:"Drop XGBoost in favor of logistic regression — XGBoost overfits on imbalanced classes."},
-          {key:"f", text:"Increase the class-weight on positives from current value to 100×."},
-        ]}
-        trap={<>(d) is a category error: CE = log-loss for binary classification. They're the same thing. (e) is broad speculation — XGBoost can handle imbalance fine; the question isn't whether the model overfits, it's whether the metric is honest. (f) is a parameter knob without diagnosis. The trap on this question is mistaking "ship" for "test by which metric" — the senior is judging on AUC, but the relevant operational quality lives in precision-recall + calibration.</>}
-        lens={<>Three correct: <strong>(a) PR curves</strong> reveal what AUC hides at 1% positives; <strong>(b) precision-at-deployment-recall</strong> is the business metric; <strong>(c) calibration</strong> matters when downstream decisions are threshold-based or use probabilities directly. The val PR-AUC of 0.32 is the real signal — much weaker than AUC 0.91 suggests, and the senior eng would catch this if they looked.</>}
-        stretch={<>If calibration fails (predicted probability of fraud is systematically too high), what's the fix that DOESN'T require retraining?</>}
-      />
-
-      <VIS.TrapProblem
+<VIS.TrapProblem
         id="bv-p10"
         difficulty="hard"
         multiSelect
@@ -2430,9 +2393,9 @@ flowchart TB
         scenario={<>You re-train the SAME architecture on five different bootstrap resamples of the same dataset. The five resulting models give predictions <strong>0.10, 0.55, 0.22, 0.78, 0.41</strong> for the same input <code>x</code>. The true label at <code>x</code> is 0.40. What does the SPREAD across the five predictions measure?</>}
         options={[
           {key:"a", text:"Bias — the predictions don't agree with the truth."},
-          {key:"b", text:"Variance — spread across training-set resamples is the definition of variance.", correct:true},
+          {key:"b", text:"Variance — spread across training-set resamples IS variance.", correct:true},
           {key:"c", text:"Noise (σ²) — the labels themselves are randomly varying."},
-          {key:"d", text:"Generalization gap — train vs test difference."},
+          {key:"d", text:"Generalization gap — the difference between train and test error."},
         ]}
         trap={<>(a) confuses "wrong" with "spread." Even though some predictions miss 0.40, the variance is about disagreement <em>among the five</em>, not their distance to truth. (c) confuses model variance with label noise — σ² is a property of the data, not of the models you trained. (d) is about train vs test, a different axis.</>}
         lens={<>Variance at x = E_D[(f̂_D(x) − E_D[f̂_D(x)])²]. The 5 predictions have mean ≈ 0.41 and spread ≈ 0.25 — that spread IS the variance. Bias would be |0.41 − 0.40|² ≈ 0 here; this procedure happens to be nearly unbiased at this input.</>}
@@ -2444,9 +2407,9 @@ flowchart TB
         title="Q12 — Identity: deep net memorizes train, generalizes test"
         scenario={<>A 100M-parameter transformer reaches <strong>0% train loss</strong> (perfect memorization) and 18% test error — better than any smaller model. Classical theory predicts variance should explode at the interpolation threshold. What's the closest correct framing?</>}
         options={[
-          {key:"a", text:"Classical bias-variance is wrong; ignore the framework for deep nets."},
-          {key:"b", text:"This is double descent — variance can drop AGAIN past the interpolation threshold in over-parameterized regimes.", correct:true},
-          {key:"c", text:"The model has zero bias and zero variance — perfect generalization."},
+          {key:"a", text:"Classical bias-variance is simply wrong; ignore the framework entirely for deep nets."},
+          {key:"b", text:"Double descent — variance can drop AGAIN past the interpolation threshold.", correct:true},
+          {key:"c", text:"The model must have zero bias and zero variance — a case of perfect generalization."},
           {key:"d", text:"Train loss = 0 always means overfit; the 18% test error proves it."},
         ]}
         trap={<>(a) overcorrects — classical theory still describes most practical ML; it's just incomplete for over-parameterized regimes. (c) ignores σ²: 18% test error means real error, which must be bias + variance + noise. (d) misses that test error 18% may BEAT smaller models — the train=0 isn't itself the problem.</>}
@@ -2459,10 +2422,10 @@ flowchart TB
         title="Q13 — Add features: bias or variance up?"
         scenario={<>Linear regression. You add 50 weakly informative features to a 10-feature baseline (no regularization, fixed training set size 5,000). All else equal, what happens to the expected decomposition components?</>}
         options={[
-          {key:"a", text:"Bias up, variance down."},
+          {key:"a", text:"Bias goes up, variance goes down."},
           {key:"b", text:"Bias down (or flat), variance up.", correct:true},
-          {key:"c", text:"Both up."},
-          {key:"d", text:"Both down — more features always helps."},
+          {key:"c", text:"Both bias and variance go up."},
+          {key:"d", text:"Both go down — more features always helps generalization."},
         ]}
         trap={<>(a) reverses the direction — capacity going UP lowers bias, not raises it. (c) and (d) are reflex picks that don't track the actual mechanism: adding feature dimensions while training-set size stays fixed inflates the number of parameters per example, which is the variance lever.</>}
         lens={<>Adding features increases the function class — bias can only go down (or stay flat if features carry no signal). But with fixed n, variance rises because each weight estimate gets noisier. Classical p/n curse-of-dimensionality. Regularization is the standard counter.</>}
@@ -2489,10 +2452,10 @@ flowchart TB
         title="Q15 — Mechanism: why does averaging predictions cut variance?"
         scenario={<>You bag 100 INDEPENDENT (ρ=0) decision trees, each with prediction variance σ² at a given input. What's the variance of the bagged average?</>}
         options={[
-          {key:"a", text:"σ² — averaging doesn't change variance."},
-          {key:"b", text:"σ²/100 = 0.01·σ²", correct:true},
-          {key:"c", text:"σ²·100 — variance accumulates."},
-          {key:"d", text:"Zero — averaging cancels all noise."},
+          {key:"a", text:"σ² — averaging the trees does not change the variance at all."},
+          {key:"b", text:"σ²/100 = 0.01·σ² — the average of n iid predictions.", correct:true},
+          {key:"c", text:"σ²·100 — the variance accumulates across the hundred trees."},
+          {key:"d", text:"Zero — averaging the trees perfectly cancels all of the noise."},
         ]}
         trap={<>(a) ignores the n-divisor for independent averages. (c) reverses the direction. (d) over-claims: averaging cuts noise toward 0 only with infinitely many independent samples; bias survives averaging.</>}
         lens={<>Var(average of n iid with var σ²) = σ²/n. With correlation ρ, the formula becomes σ²·ρ + σ²·(1−ρ)/n → σ²·ρ as n→∞. Independence is the magic ingredient. RF/bagging tries to push ρ down via bootstrap + feature subsampling.</>}
@@ -2504,10 +2467,10 @@ flowchart TB
         title="Q16 — Diagnose: low train, low val, big test gap"
         scenario={<>Train loss <strong>0.10</strong>. Val loss <strong>0.11</strong>. Test loss (held-out, freshly collected last month) <strong>0.55</strong>. What's the most likely cause?</>}
         options={[
-          {key:"a", text:"Variance problem — model is overfitting."},
-          {key:"b", text:"Bias problem — model is too simple."},
-          {key:"c", text:"Distribution shift between train/val and test.", correct:true},
-          {key:"d", text:"Noise — σ² is high."},
+          {key:"a", text:"Variance problem — the model is overfitting the training set."},
+          {key:"b", text:"Bias problem — the model class is too simple to fit."},
+          {key:"c", text:"Distribution shift between train/val and the fresh test set.", correct:true},
+          {key:"d", text:"Noise — the irreducible σ² floor is high here."},
         ]}
         trap={<>(a) and (b) both assume bias/variance — but train and val agree, ruling out classical overfit (which would split them). (d) noise affects all three equally, not test alone. The signature "train ≈ val ≫ test" with test collected from a different time window is distribution shift.</>}
         lens={<>Bias-variance assumes train/val/test all drawn from the SAME distribution. When the test set is freshly collected, you've broken the assumption. Diagnose with feature distributions (KS test), label distributions, or a domain classifier between train and test.</>}
@@ -2519,10 +2482,10 @@ flowchart TB
         title="Q17 — k-NN: which way does k shift the U-curve?"
         scenario={<>For k-nearest-neighbor regression, INCREASING k pushes the procedure toward which corner of the bias-variance plot?</>}
         options={[
-          {key:"a", text:"Low bias, low variance — bigger k is always better."},
-          {key:"b", text:"High bias, low variance — averaging over more neighbors stabilizes predictions but flattens signal.", correct:true},
+          {key:"a", text:"Low bias and low variance — a bigger k is essentially always better."},
+          {key:"b", text:"High bias, low variance — more neighbors stabilize but flatten the signal.", correct:true},
           {key:"c", text:"Low bias, high variance — more neighbors = more options."},
-          {key:"d", text:"High bias, high variance — k-NN degrades both ways."},
+          {key:"d", text:"High bias and high variance — k-NN degrades in both directions at once."},
         ]}
         trap={<>(a) and (d) are both wrong-direction picks. (c) reverses the actual effect — more neighbors smooths predictions, which is exactly what reduces variance.</>}
         lens={<>k acts as INVERSE capacity. k=1 = each test point predicted by one neighbor (high variance, low bias). k=n = predict the global mean (zero variance, max bias). This is the canonical U-curve example.</>}
@@ -2534,10 +2497,10 @@ flowchart TB
         title="Q18 — Identity: is dropout a bias-reducer or variance-reducer?"
         scenario={<>Adding dropout (p=0.5) to a fully-connected layer during training. Net effect on the bias-variance decomposition of the procedure?</>}
         options={[
-          {key:"a", text:"Reduces bias — dropout makes the model more flexible."},
-          {key:"b", text:"Reduces variance at a small cost to bias — dropout is regularization.", correct:true},
+          {key:"a", text:"Reduces bias — dropout effectively makes the model more flexible and expressive."},
+          {key:"b", text:"Reduces variance at a small bias cost — dropout is regularization.", correct:true},
           {key:"c", text:"Reduces both bias and variance."},
-          {key:"d", text:"Increases both — dropout is just noise."},
+          {key:"d", text:"Increases both bias and variance — dropout is just injected noise."},
         ]}
         trap={<>(a) confuses dropout with adding parameters. Dropout REDUCES effective capacity per forward pass. (c) is the over-promise; regularization always trades a little bias for variance reduction — you can't get both for free. (d) misreads dropout's role: the "noise" IS the regularizer.</>}
         lens={<>Dropout is a variance-reduction technique. At training time it acts like an implicit ensemble over sub-networks; at inference time the weights are scaled. Net: variance drops, bias rises slightly, total error usually drops.</>}
@@ -2549,10 +2512,10 @@ flowchart TB
         title="Q19 — Mechanism: why is cross-entropy decomposition messier?"
         scenario={<>Why doesn't the clean bias² + variance + σ² decomposition apply directly to cross-entropy loss in classification?</>}
         options={[
-          {key:"a", text:"Cross-entropy is non-convex; decomposition requires convex loss."},
-          {key:"b", text:"The decomposition relies on the squared-error identity (a−b)² = a² − 2ab + b² — under CE, the analogous expansion has cross-terms that don't vanish, so 'bias' and 'variance' aren't unique.", correct:true},
-          {key:"c", text:"Classification has no notion of bias or variance."},
-          {key:"d", text:"Cross-entropy is exactly equivalent — the decomposition transfers directly."},
+          {key:"a", text:"Cross-entropy is non-convex, and the decomposition requires a convex loss to hold."},
+          {key:"b", text:"The clean split needs squared error; cross-entropy's cross-terms don't vanish, so bias and variance aren't unique.", correct:true},
+          {key:"c", text:"Classification problems have no meaningful notion of bias or variance whatsoever."},
+          {key:"d", text:"Cross-entropy is exactly equivalent, and the whole squared-error decomposition transfers over directly."},
         ]}
         trap={<>(a) is a plausible-sounding red herring; convexity isn't the issue. (c) overclaims — there ARE classification analogues (Domingos 2000), they're just not unique. (d) is wrong: squared-error is the only loss where the decomposition is canonical.</>}
         lens={<>Squared error decomposes because (y − ŷ)² expands cleanly. For CE the analogous Domingos decomposition introduces a "noise" term that interacts with bias non-additively, and the variance term can be DEFINED in several non-equivalent ways. Use squared-error intuition cautiously for classifiers.</>}
@@ -2564,7 +2527,7 @@ flowchart TB
         title="Q20 — Arithmetic: more data, fixed model"
         scenario={<>You hold model class fixed (degree-3 polynomial) and grow the training set from 1,000 → 1,000,000 examples. Which component is MOST affected?</>}
         options={[
-          {key:"a", text:"Bias — more data lets the model learn the true function."},
+          {key:"a", text:"Bias — more data lets the fixed model learn the true underlying function."},
           {key:"b", text:"Variance — more data tightens the fit across resamples.", correct:true},
           {key:"c", text:"σ² — irreducible noise drops with more data."},
           {key:"d", text:"All three drop equally."},
@@ -2580,12 +2543,12 @@ flowchart TB
         title="Q21 — Which reduce variance, NOT bias? (multi-select)"
         scenario={<>Select all techniques that primarily reduce variance with a small bias cost, not the other way around.</>}
         options={[
-          {key:"a", text:"L2 / ridge regularization", correct:true},
+          {key:"a", text:"L2 / ridge regularization (weight shrinkage)", correct:true},
           {key:"b", text:"Adding more layers to a neural net"},
-          {key:"c", text:"Bagging / random forest", correct:true},
-          {key:"d", text:"Early stopping", correct:true},
+          {key:"c", text:"Bagging / random forest (ensemble averaging)", correct:true},
+          {key:"d", text:"Early stopping (optimization-path truncation)", correct:true},
           {key:"e", text:"Higher-degree polynomial features"},
-          {key:"f", text:"Dropout", correct:true},
+          {key:"f", text:"Dropout (stochastic sub-network training)", correct:true},
         ]}
         trap={<>(b) and (e) are CAPACITY INCREASES — they reduce bias, raise variance. Reflex picks from candidates who associate "more knobs" with "more regularization." The four correct items all CONSTRAIN the effective hypothesis class.</>}
         lens={<>Four correct: L2, bagging, early stopping, dropout. All four reduce variance via different mechanisms — weight shrinkage, ensemble averaging, optimization-path truncation, stochastic sub-networks. They all pay a small bias cost.</>}
@@ -2597,10 +2560,10 @@ flowchart TB
         title="Q22 — Failure mode: high-dim where decomposition gives wrong intuition"
         scenario={<>In high-dimensional sparse classification (e.g., genome-wide association: 1M SNPs, 5k subjects), the classical bias-variance U-curve breaks down because:</>}
         options={[
-          {key:"a", text:"Bias becomes irrelevant — the truth is unknowable in high dimensions."},
-          {key:"b", text:"All models have the same variance in high-D."},
-          {key:"c", text:"With p ≫ n, the variance term dominates everything; classical capacity ↔ U-curve becomes a monotonic 'more capacity = more variance' line.", correct:true},
-          {key:"d", text:"Bias and variance swap roles when p > n."},
+          {key:"a", text:"Bias becomes irrelevant because the underlying truth is simply unknowable in high dimensions."},
+          {key:"b", text:"All models happen to have exactly the same prediction variance once you are in high dimensions."},
+          {key:"c", text:"With p ≫ n variance dominates everywhere, so the U-curve flattens to a monotonic 'more = more variance' line.", correct:true},
+          {key:"d", text:"Bias and variance somehow cleanly swap their two roles the moment p exceeds n."},
         ]}
         trap={<>(a) is poetic but wrong — bias is still defined. (b) is plain false. (d) is a made-up symmetry. The actual phenomenon: in p ≫ n regimes the model can interpolate easily, so variance is the binding constraint everywhere.</>}
         lens={<>When p ≫ n, even a linear model has enough capacity to fit any training set — the bias term becomes near-zero across the meaningful range. The U-curve flattens on the left and the rest is dominated by variance. This is why L1/sparse methods dominate in genomics.</>}
@@ -2627,9 +2590,9 @@ flowchart TB
         title="Q24 — Identity: which quantity does NOT depend on training data?"
         scenario={<>In the decomposition bias² + variance + σ², which term is a property of the DATA (independent of model choice or training set)?</>}
         options={[
-          {key:"a", text:"Bias² — it depends only on the truth f(x)."},
-          {key:"b", text:"Variance — it depends only on the input distribution."},
-          {key:"c", text:"σ² — it's the inherent label noise, set by the joint distribution P(x,y).", correct:true},
+          {key:"a", text:"Bias² — it depends only on the true function f(x) itself."},
+          {key:"b", text:"Variance — it depends only on the input feature distribution."},
+          {key:"c", text:"σ² — inherent label noise, set by the joint distribution P(x,y).", correct:true},
           {key:"d", text:"All three are model-dependent."},
         ]}
         trap={<>(a) is wrong: bias depends on the model's AVERAGE prediction, which is a function of the learning procedure. (b) confuses input variance with prediction variance — only the latter is in the decomposition. (d) overclaims model dependence.</>}
