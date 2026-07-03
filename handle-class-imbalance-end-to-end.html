@@ -1496,13 +1496,13 @@ const App = () => (
         title="After balancing to 50/50, predicted subscribe-rate averages 48%"
         scenario={<>A teammate oversamples 2%→50%, trains, and the model's average predicted P(subscribe) across live traffic is ~48% — against a true base rate of ~2%. Precision in the promo campaign collapses. They suspect the model "learned to over-predict from noise."</>}
         options={[
-          {key:"a", text:"Calibration shift by construction: a 50% training prior inflates the odds ~49×, so predictions bow above the diagonal. Recalibrate, or don't rebalance.", correct:true},
+          {key:"a", text:"Calibration shift by construction: a 50% prior inflates the odds ~49×, so predicted exceeds observed everywhere (reliability curve below the diagonal). Recalibrate, or don't rebalance.", correct:true},
           {key:"b", text:"The model overfit the duplicated minority rows; adding dropout and weight decay will pull the average prediction back toward 2%."},
           {key:"c", text:"The threshold is wrong: predictions are fine, but 0.5 is too low for this model, so raising the decision threshold fixes the inflated rate."},
-          {key:"d", text:"The features drifted between training and serving; recomputing them on live traffic will realign the predicted rate with the true base rate."},
+          {key:"d", text:"The features drifted between training and serving; recomputing them on current live traffic will realign the average predicted rate with the true 2% base rate."},
         ]}
         trap={<>(c) confuses the DECISION threshold with the PROBABILITIES: moving the threshold changes which rows are flagged, not the miscalibrated probability values themselves — and anything downstream that consumes P(subscribe) as a probability (expected-value ranking, bidding, promo budgeting) still sees ~48% where the truth is 2%.</>}
-        lens={<>Resampling changes the empirical prior, and the model dutifully learns the Bayes posterior under that new prior — so odds shift by (π_train/(1−π_train))·((1−π_true)/π_true), about 49× when you go 2%→50%. The reliability diagram bows above the diagonal. Fixes: the Saerens 2002 prior correction q = p·a/(p·a + (1−p)·b), or Platt/isotonic fit on a held-out set drawn from the TRUE distribution. The cleanest fix is to not create the problem — class-weighting distorts probabilities too, but by exactly the weight ratio, so it inverts analytically.</>}
+        lens={<>Resampling changes the empirical prior, and the model dutifully learns the Bayes posterior under that new prior — so odds shift by (π_train/(1−π_train))·((1−π_true)/π_true), about 49× when you go 2%→50%. Predicted probability exceeds observed frequency, so the reliability curve sits below the diagonal. Fixes: the Saerens 2002 prior correction q = p·a/(p·a + (1−p)·b), or Platt/isotonic fit on a held-out set drawn from the TRUE distribution. The cleanest fix is to not create the problem — class-weighting distorts probabilities too, but by exactly the weight ratio, so it inverts analytically.</>}
         stretch={<>Class-weighting also shifts the probabilities. Why is its shift "correctable" while resampling's is "corrupting"?</>}
       />
 
@@ -1615,21 +1615,20 @@ const App = () => (
       {/* D — resample the test set */}
       <VIS.TrapProblem
         id="hci-p9"
-        difficulty="medium"
-        title="'Balance the test set too, so training and eval match'"
-        scenario={<>A junior argues for consistency: "if I train on balanced data, I should test on balanced data — otherwise the distributions don't match and the metrics aren't comparable. I'll resample the test set to 50/50 as well." Grade it.</>}
+        difficulty="hard"
+        title="Your AUPRC 'improved' from 0.24 to 0.27 — real?"
+        scenario={<>Two candidate models are compared on the 2%-positive holdout: the new one scores AUPRC 0.27 vs the incumbent's 0.24. The holdout has 50,000 rows — but only ~1,000 of them are positives. A teammate wants to ship on the 3-point AUPRC gain.</>}
         options={[
-          {key:"a", text:"Never balance the test set: it must reflect production's true 2% prior, or precision, AUPRC, calibration, and the threshold all become fiction.", correct:true},
-          {key:"b", text:"Correct: matched train/test distributions are a basic requirement, so balancing both is the statistically sound choice."},
-          {key:"c", text:"Partly right: balance the test set but keep a small unbalanced holdout for final reporting, using the balanced set for model selection."},
-          {key:"d", text:"Correct for metrics but not thresholds: compute AUPRC on the balanced test set, then pick the threshold on an unbalanced set."},
+          {key:"a", text:"Hold off: AUPRC precision is bounded by the POSITIVE count (~1,000), not the 50k rows — a 0.03 gap can be inside the CI. Bootstrap over positives first.", correct:true},
+          {key:"b", text:"Ship it: 50,000 evaluation rows is a large sample, so a 0.03 AUPRC improvement is comfortably outside sampling noise."},
+          {key:"c", text:"Ship it: AUPRC is a ranking metric, and ranking metrics are immune to sample-size noise, so any positive gap is a real improvement."},
+          {key:"d", text:"Hold off, but for a different reason: AUPRC is only trustworthy above 0.5, so both models are in the unreliable regime and the comparison is meaningless."},
         ]}
-        trap={<>(b) elevates "matched distributions" — a real principle for the TRAIN/serve relationship — into a rule that destroys evaluation. Test data answers "how will this do in production?", and production runs at 2%, not 50%. Matching the test set to a deliberately-distorted training set measures performance in a world that does not exist.</>}
-        lens={<>Only the training distribution is a modeling choice; the evaluation distribution is a fact about deployment. AUPRC's baseline is the prevalence — compute it at 50% and it reads ~0.5 baseline, flattering a useless model; precision at any threshold changes with the prior. The consistency that matters is test-set-equals-production, not test-set-equals-training. (c)/(d) try to split the difference and just relocate the same error.</>}
-        stretch={<>You DID need a balanced set somewhere in the workflow — where is it legitimately useful?</>}
+        trap={<>(b) counts the wrong n: at 2% prevalence the 50,000-row holdout carries only ~1,000 positives, and precision/recall estimates — hence AUPRC — have variance set by that positive count, not the total. A 0.24→0.27 move on ~1,000 positives is easily a coin flip. Large TOTAL n is false reassurance under imbalance.</>}
+        lens={<>The binding sample size for minority-class metrics is the number of POSITIVES, not rows: at 2%, a 50k holdout is effectively a 1k-example evaluation for anything precision/recall-based, so AUPRC confidence intervals are wide and small gaps are noise. Bootstrap the metric over positives (resample and recompute) to get a CI before declaring a winner; if you need to resolve a 0.03 gap, you need more positives — a longer collection window or stratified enrichment of the EVAL set's positive count (never its prior). Report the metric with its interval, not as a point.</>}
+        stretch={<>Roughly how many more positives would you need in the holdout to halve the AUPRC confidence interval?</>}
       />
 
-      {/* E3 — library specifics (multi) */}
       <VIS.TrapProblem
         id="hci-p10"
         difficulty="hard"
@@ -1672,12 +1671,12 @@ const App = () => (
         title="Where does the decision threshold come from?"
         scenario={<>Marketing needs a yes/no "target this user with the subscribe promo" decision. The promo costs little to send but annoys non-subscribers slightly; catching a real subscriber is valuable. Where and how do you set the threshold?</>}
         options={[
-          {key:"a", text:"On the validation set, by the business cost ratio (cost of a false positive vs value of a caught subscriber) — not the default 0.5, and never tuned on test.", correct:true},
-          {key:"b", text:"At 0.5, the natural decision boundary; if that flags too many users, retrain with stronger regularization until 0.5 gives the right volume."},
+          {key:"a", text:"On validation by the cost ratio — 0.5 is DOUBLY wrong: class-weighting shifted the probability scale, and the 2% prior means the cost-optimal cut was never near 0.5.", correct:true},
+          {key:"b", text:"At 0.5, the natural boundary: after class-weighting balanced the loss, 0.5 is restored as the correct cut, so no separate threshold search is needed."},
           {key:"c", text:"On the test set, choosing the threshold that maximizes the reported F1 so the final metric is as strong as possible."},
-          {key:"d", text:"Wherever recall hits 100%, since missing a potential subscriber is the costly error and false positives are free."},
+          {key:"d", text:"Wherever recall hits 100%, since missing a potential subscriber is the only costly error and false-positive promos are essentially free to send."},
         ]}
-        trap={<>(d) takes "false positives are cheap" to an absurd corner — 100% recall means flagging everyone, which is not a model at all and floods users with promos (the annoyance cost is small, not zero, and it compounds across millions). (c) tunes on test, converting the holdout into a selection set and inflating the reported F1.</>}
+        trap={<>(b) is the trap this problem exists to break: class-weighting does NOT restore 0.5 — it upweights the positive loss term, which shifts the whole probability scale, so the cost-optimal threshold moves too. Combined with the skewed 2% prior, 0.5 is wrong on two independent counts. (c) tunes on test, converting the holdout into a selection set.</>}
         lens={<>The threshold is a business decision informed by the cost matrix, computed on validation: sweep the PR curve, evaluate expected cost = (FP · annoyance) − (TP · subscriber value) at each operating point, pick the minimizer. 0.5 is meaningless after weighting shifted the probability scale, and test-set tuning is leakage. The threshold is where the ML model meets the P&amp;L — own that it comes from costs, not from a default.</>}
         stretch={<>The promo's annoyance cost is hard to quantify. What proxy would you negotiate with the business to make the cost ratio concrete?</>}
       />
@@ -1823,16 +1822,16 @@ const App = () => (
         id="hci-p21"
         difficulty="hard"
         title="Read the reliability diagram"
-        scenario={<>You plot predicted probability (x) against observed frequency (y) for the rebalanced model, binned. The curve sits consistently ABOVE the diagonal at low predicted values and bows well above it across the middle. What does this show, and what is the fix?</>}
+        scenario={<>You plot predicted probability (x) against observed frequency (y) for the rebalanced model, binned. The curve sits consistently BELOW the diagonal — at each predicted value the observed subscribe-rate is lower. What does this show, and what is the fix?</>}
         options={[
-          {key:"a", text:"Systematic over-prediction from the base-rate shift: predicted exceeds observed everywhere — the balanced-prior signature. Fix with prior correction or a true-prior calibrator.", correct:true},
-          {key:"b", text:"Good calibration: a curve above the diagonal means the model is appropriately cautious, over-estimating risk on the safe side, which is desirable for a promo model."},
-          {key:"c", text:"Under-confidence: the model's probabilities are too low, so applying a temperature below 1 to sharpen them will pull the curve onto the diagonal."},
-          {key:"d", text:"Label noise in the minority class; cleaning the subscribe labels will straighten the curve without any calibration step."},
+          {key:"a", text:"Systematic over-prediction from the base-rate shift: predicted exceeds observed everywhere (curve below the diagonal) — the balanced-prior signature. Fix with prior correction or a true-prior calibrator.", correct:true},
+          {key:"b", text:"Good calibration: a curve below the diagonal means the model is appropriately cautious, under-claiming subscribe probability on the safe side, which is desirable for a promo model."},
+          {key:"c", text:"Under-confidence: the model's probabilities are too low across the board, so applying a temperature below 1 to sharpen them will pull the curve up onto the diagonal."},
+          {key:"d", text:"Label noise in the minority class; cleaning up the mislabeled subscribe events will straighten the reliability curve without any explicit calibration step."},
         ]}
-        trap={<>(b) spins a clear defect as a virtue — "cautious/above the diagonal is safe" — but above-the-diagonal here means predicted > observed, i.e. the model claims higher subscribe probability than reality delivers, which OVER-targets and wastes promo budget. There is nothing conservative about systematically overstating the positive rate. (c) has the direction backwards (over-, not under-, confident).</>}
-        lens={<>Reliability diagram literacy: points ABOVE the diagonal mean predicted probability EXCEEDS observed frequency (over-prediction); below means under. A balanced-prior model over-predicts everywhere because its implied base rate (50%) sits far above reality (2%) — the exact fingerprint of the calibration break. The fix is not label cleaning or temperature guessing but the principled base-rate correction (Saerens/He) or a calibrator fit on held-out true-prior data. Reading the curve's direction tells you which way the probabilities are wrong.</>}
-        stretch={<>Sketch what the SAME model's reliability diagram would look like after a correct prior correction. Where do the points move?</>}
+        trap={<>(b) spins a clear defect as a virtue — "cautious is safe" — but below-the-diagonal here means predicted > observed, i.e. the model claims higher subscribe probability than reality delivers, which OVER-targets and wastes promo budget. There is nothing conservative about systematically overstating the positive rate. (c) has the direction backwards (over-, not under-, confident).</>}
+        lens={<>Reliability diagram literacy: points BELOW the diagonal mean predicted probability EXCEEDS observed frequency (over-prediction); above means under. A balanced-prior model over-predicts everywhere because its implied base rate (50%) sits far above reality (2%) — the exact fingerprint of the calibration break. The fix is not label cleaning or temperature guessing but the principled base-rate correction (Saerens/He) or a calibrator fit on held-out true-prior data. Reading the curve's direction tells you which way the probabilities are wrong.</>}
+        stretch={<>After a correct prior correction, which way do the below-the-diagonal points move, and where do they end up?</>}
       />
 
       {/* A5 — the whole decision as one ordered answer */}
