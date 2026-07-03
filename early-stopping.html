@@ -2280,8 +2280,8 @@ const App = () => (
         options={[
           {key:"a", text:"Train longer — val loss at epoch 2 cannot be a true minimum because the model has barely adapted to the downstream task."},
           {key:"b", text:"Set patience to 25 epochs to ensure the model has time to adapt; small patience defeats the purpose of fine-tuning."},
-          {key:"c", text:"The early bottom indicates catastrophic forgetting onset; switch to LoRA or adapters and restart training."},
-          {key:"d", text:"Fine-tuning trajectories often bottom very early (1–5 epochs) because the pretrained init is close to the downstream optimum; patience should be small (2–5).", correct:true},
+          {key:"c", text:"The early bottom indicates the onset of catastrophic forgetting; switch to LoRA or adapter-based tuning and restart the training run."},
+          {key:"d", text:"Fine-tuning bottoms very early (1–5 epochs) — the pretrained init sits near the downstream optimum, so patience should be small (2–5).", correct:true},
         ]}
         trap={<>(a) treats train-from-scratch intuitions as universal. (c) overdiagnoses a normal shape as forgetting. (b) wastes compute and risks overfitting the small downstream set.</>}
         lens={<>Fine-tuning starts close to optimum, so the val curve bottoms in tens of steps for small datasets. Patience of 2–5 is appropriate; long patience overshoots the optimum and degrades transfer. Track both the head and the encoder loss separately if mismatch is suspected.</>}
