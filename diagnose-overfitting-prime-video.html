@@ -1461,6 +1461,374 @@ const App = () => (
         <VIS.Tag color="blue">model-complexity-curve</VIS.Tag>
       </p>
     </VIS.Section>
+
+    <VIS.Section id="sec-drill" title="Re-run the interview — trap drills">
+      <p>
+        Twenty-one problems that re-run this interview the way a 5/5 candidate experiences it: anchor the numbers, run the differential diagnosis, order the interventions by cost, and connect to what Prime Video actually serves. The scenario throughout: production click model, train cross-entropy 0.05, validation cross-entropy 0.42, base CTR ≈ 3%.
+      </p>
+
+      {/* warm-up — the opening move */}
+      <VIS.TrapProblem
+        id="dopv-p1"
+        difficulty="medium"
+        title="The interviewer finishes the prompt. Your first sentence?"
+        scenario={<>"You've built a Prime Video click model: low training loss, high test loss. Walk through your bias-variance framing, techniques, and priority order." The candidate who scored 2.5/5 opened with: "I'd add L2 regularization and dropout, and if that's not enough, reduce network depth." What should the first move be?</>}
+        options={[
+          {key:"a", text:"Diagnose before treating: verify the eval isn't lying (split, leakage), then plot learning curves to classify the regime. Every downstream fix depends on which regime it is.", correct:true},
+          {key:"b", text:"The candidate's opening is right: with a confirmed 8× train/val gap, regularization IS the diagnosis — the gap already told you it's variance."},
+          {key:"c", text:"Start with more data: at Prime Video's scale extra impressions are nearly free, and more data helps in every regime, so it dominates any diagnostic step."},
+          {key:"d", text:"Start by switching the metric to NDCG: classification losses are meaningless for ranking products, so the reported gap may not even be real."},
+        ]}
+        trap={<>(b) is precisely the 2.5/5 move dressed in confidence: a big gap is CONSISTENT WITH four different generators (variance, leakage, shift, label noise), and regularization treats exactly one of them. Prescription before diagnosis is the failure mode this interview exists to catch.</>}
+        lens={<>The senior structure the rubric rewards: (1) verify the data/eval, (2) classify the regime with learning curves, (3) order interventions cheapest-reversible first with stop conditions, (4) connect to the business metric. The 2.5/5 answer named techniques; the 5/5 answer names the DECISION PROCESS that picks between them. (d) smuggles in a half-truth — ranking metrics matter later, but the model serves calibrated probabilities and its CE gap is real evidence.</>}
+        stretch={<>Say your first two sentences out loud, as you would in the room. Do they name a diagnostic or a technique?</>}
+      />
+
+      {/* prior-baseline anchoring */}
+      <VIS.TrapProblem
+        id="dopv-p2"
+        difficulty="hard"
+        title="What do 0.05 and 0.42 already tell you — before any curve is plotted?"
+        scenario={<>Base CTR is ≈3%, so a constant model predicting p=0.03 for everyone scores cross-entropy ≈ 0.135 nats. Your model: train CE 0.05, val CE 0.42. An interviewer who hears you anchor both numbers against 0.135 sits up. Why?</>}
+        options={[
+          {key:"a", text:"Train 0.05 sits far BELOW the constant-predictor baseline (memorization/leakage territory); val 0.42 is WORSE than predicting the base rate. Two comparisons, zero retrains.", correct:true},
+          {key:"b", text:"The anchoring shows the gap is smaller than it looks: 0.42 is only 0.29 above the prior floor, so the true overfit is mild and early stopping alone should close it."},
+          {key:"c", text:"It shows the loss is mis-specified: no legitimate model can score below the prior's entropy on train, so the training pipeline must be broken."},
+          {key:"d", text:"It mostly signals class imbalance: at 3% positives cross-entropy is uninformative and both numbers should be discarded for AUC."},
+        ]}
+        trap={<>(c) has the direction wrong — a genuinely predictive model SHOULD beat the constant predictor's entropy on train (that is what learning signal means); 0.05 is suspicious for its DISTANCE below the floor combined with val's collapse, not for being below it at all. Knowing which side of the baseline is legal is the point of anchoring.</>}
+        lens={<>The constant-prior baseline is the cheapest instrument in the room: entropy of a 3% base rate ≈ 0.135 nats. Train ≪ floor while val ≫ floor says the model found something on train that is WORSE than useless out-of-sample — which raises leakage and memorization hypotheses to the same rank as classic variance before you touch a single hyperparameter. A 5/5 candidate prices both reported numbers against this floor within the first minute.</>}
+        stretch={<>Recompute the anchor for a 1% and a 10% base rate. Which direction does the "suspicious train loss" threshold move?</>}
+      />
+
+      {/* two learning curves */}
+      <VIS.TrapProblem
+        id="dopv-p3"
+        difficulty="hard"
+        title="'Plot the learning curve' — the interviewer asks: WHICH one?"
+        scenario={<>You say "learning curve" and the interviewer pushes: "Error versus WHAT? And what would each shape tell you?" There are two standard curves: error vs number of training examples, and error vs training epochs. Which pairing is correct?</>}
+        options={[
+          {key:"a", text:"Vs EXAMPLES answers 'will more data help?' (gap narrowing = variance). Vs EPOCHS answers 'is training memorizing?' (U-curve = stop early; flat-high = look upstream).", correct:true},
+          {key:"b", text:"Vs examples and vs epochs are interchangeable views of the same information, since both trace how fit improves with more optimization."},
+          {key:"c", text:"Vs epochs answers 'will more data help?' — each epoch shows the model more samples, so the epoch curve is the data-size curve at fine granularity."},
+          {key:"d", text:"Vs examples diagnoses optimization problems (learning-rate too high shows as a bumpy size curve); vs epochs diagnoses capacity problems."},
+        ]}
+        trap={<>(c) is the confusion that sinks real candidates: epochs revisit the SAME data — the epoch curve varies optimization exposure at fixed information, while the size curve varies information. "More passes" and "more data" are different experiments with different verdicts, and only one of them predicts whether collecting logs will pay.</>}
+        lens={<>Two curves, two decisions: the size curve prices the "more data" intervention (its gap-vs-m trend extrapolates the payoff), the epoch curve prices "early stopping" (its val minimum is the free checkpoint). The 8×-gap snapshot alone chooses neither. Saying WHICH curve, for WHICH decision, with WHICH shape meaning what, is the difference between naming a diagnostic and owning one.</>}
+        stretch={<>Sketch the size-curve shape for the leakage hypothesis: what happens to the train curve as m grows if a leaky feature does the work?</>}
+      />
+
+      {/* four look-alikes (multi) */}
+      <VIS.TrapProblem
+        id="dopv-p4"
+        difficulty="hard"
+        multiSelect
+        title="Four look-alikes, one gap — select every correctly paired diagnostic"
+        scenario={<>An 8× train/val gap is consistent with at least four generators: true overfitting (variance), leakage inflating train, distribution shift between splits, and heavy label noise. Select every pairing below that correctly matches a generator to a cheap observable that separates it from the others.</>}
+        options={[
+          {key:"a", text:"Leakage → duplicate/near-duplicate scan across splits, same-user overlap, and a single-feature AUC screen (one lone feature near 0.9 is a smoking gun).", correct:true},
+          {key:"b", text:"Distribution shift → compare a random split against a temporal split: small gap on random but large on temporal indicts shift, and per-segment errors localize it.", correct:true},
+          {key:"c", text:"True variance → the gap narrows as training-set size grows on the size-based learning curve.", correct:true},
+          {key:"d", text:"Label noise → val loss keeps improving with more model capacity, since capacity averages out annotator errors."},
+          {key:"e", text:"Leakage → val loss rises sharply when you add L2, because regularization removes the model's access to the leaked feature."},
+        ]}
+        trap={<>(d) inverts the noise signature — under label noise BOTH curves floor at the noise entropy and capacity cannot push val below the Bayes floor; improvement-with-capacity points away from noise. (e) invents a regularization-as-leak-detector: L2 shrinks all weights indiscriminately; its effect on val cannot attribute the gap to any particular feature.</>}
+        lens={<>The differential diagnosis is cheap because each generator leaks through a DIFFERENT observable: duplicates and single-feature screens (leakage), split-design contrasts (shift), size-curve trends (variance), baseline-floor behavior (noise). None requires retraining the model with a fix attached. A 5/5 answer lists the four hypotheses and the observable that kills each — the 2.5/5 answer picked a treatment compatible with only one of them.</>}
+        stretch={<>Order the four checks by wall-clock cost for a team with a feature store and impression logs. Which one is literally a SQL query?</>}
+      />
+
+      {/* regularizing a data bug "works" */}
+      <VIS.TrapProblem
+        id="dopv-p5"
+        difficulty="hard"
+        title="The fix that 'worked' by making the model worse"
+        scenario={<>A teammate skips diagnosis, adds strong L2 to the gapped Prime Video model, and reports success: "train CE rose to 0.31, val CE fell to 0.39 — the gap is nearly closed, overfitting solved." Unknown to them, the true cause was a leaky post-click feature. What actually happened?</>}
+        options={[
+          {key:"a", text:"L2 shrank the model's use of the leaked feature until the numbers LOOKED plausible — the bug shipped, and the gap metric was optimized toward believability.", correct:true},
+          {key:"b", text:"The fix genuinely worked: whatever the cause of a gap, closing it means the model now generalizes — the mechanism does not matter once train and val agree."},
+          {key:"c", text:"L2 removed the leaked feature exactly (its weight went to zero), so the model is now clean and the remaining 0.39 val loss is the honest performance."},
+          {key:"d", text:"The result is impossible: regularization raises train loss but cannot lower val loss when the cause is leakage, so the numbers must be misreported."},
+        ]}
+        trap={<>(b) is the metric-worship trap: a small gap between two numbers is not generalization — a constant predictor has a PERFECT gap. Closing the gap by degrading train tells you nothing about whether val performance is what it could be, and here val barely moved (0.42→0.39, still far above the 0.135 floor).</>}
+        lens={<>Regularizing a data bug "works" the way sedating a fever "works": λ is a dial that can make ANY dashboard plausible by trading train fit for believability. That is the mechanistic reason diagnosis-first is not pedantry — treatments applied to the wrong generator optimize the appearance of health while the disease (a leaky feature that will behave unpredictably in serving) ships. (c) credits L2 with L1's selection behavior, and with implausible surgical precision besides.</>}
+        stretch={<>What would the same intervention look like if the true cause were temporal shift — which number moves, and why does the "success" story still get told?</>}
+      />
+
+      {/* the ladder ordering */}
+      <VIS.TrapProblem
+        id="dopv-p6"
+        difficulty="hard"
+        title="Order the interventions like the rubric wants"
+        scenario={<>Assume diagnosis will confirm genuine variance. The interviewer asks for your intervention ORDER and your reasoning for it. Which sequence — and rationale — earns the 5/5?</>}
+        options={[
+          {key:"a", text:"Verify eval → learning curve → early stopping → regularization → capacity cut: cost- and reversibility-ordered, each rung with a stop condition.", correct:true},
+          {key:"b", text:"Regularization → dropout → smaller model → early stopping → more data: ordered by how directly each attacks variance, strongest medicine first."},
+          {key:"c", text:"More data → capacity reduction → regularization → early stopping: ordered by permanence, since durable fixes beat training-time patches."},
+          {key:"d", text:"Any order works if all are tried: the interventions are independent, so sequence is a style preference the rubric should not score."},
+        ]}
+        trap={<>(d) fails on interactions: regularization strength tunes differently at different capacities, early stopping changes where λ matters, and an eval bug found LAST invalidates every experiment run before it. The rungs are not commutative — that is exactly why order carries interview signal.</>}
+        lens={<>Cheapest-reversible-first is an engineering principle, not etiquette: rung 1 (eval checks) costs hours and can void everything downstream; early stopping is free and needs one curve; explicit regularization forces a λ×LR retuning sweep; capacity changes touch serving latency and the retrain pipeline. Each rung needs its stop condition stated ("if the size curve shows bias, stop — nothing below applies"). The 2.5/5 candidate had the rungs; the ladder — with its ordering logic — is what was missing.</>}
+        stretch={<>Where does "collect more data" slot into the ladder at Prime Video, and what makes its position different at a startup with 10k users?</>}
+      />
+
+      {/* more data always helps? */}
+      <VIS.TrapProblem
+        id="dopv-p7"
+        difficulty="hard"
+        title="'More data always helps — and at Amazon it's free'"
+        scenario={<>A candidate proposes: "Prime Video logs millions of impressions daily; extending the training window from 7 to 30 days is free data, and more data always reduces overfitting — so that's my first fix." Where does this reasoning fail?</>}
+        options={[
+          {key:"a", text:"More data pays only in the variance regime (the size curve is the test) — and a 30-day window imports last month's catalog and seasonality, which can WORSEN next-day metrics.", correct:true},
+          {key:"b", text:"The flaw is purely operational: 4× data means 4× training cost, and the fix should be rejected on compute budget grounds alone."},
+          {key:"c", text:"There is no flaw: data volume dominates all other interventions at web scale, which is why large platforms rarely bother with regularization."},
+          {key:"d", text:"The flaw is dedup: a 30-day window re-includes users already in the 7-day set, so their repeated impressions inflate the effective sample without adding information."},
+        ]}
+        trap={<>(b) concedes the statistics to attack the logistics — but the interviewer's trap is statistical: "more data" bundles TWO claims (it helps my regime; it is the same distribution) and at a fast-moving catalog the second claim quietly fails. Naming the staleness tax is what separates knowing the folklore from having operated a daily-retrained model.</>}
+        lens={<>"More data" is an intervention with a regime test (size curve: does the gap narrow?) and a distribution test (does a temporal holdout confirm the older data still represents serving traffic?). At Prime Video both tests are cheap and BOTH can fail: bias-limited models flatline, and stale windows trade variance for shift. Free data is only free when the freshness clock says so.</>}
+        stretch={<>Design the 2-experiment check that prices a 7→30-day window extension in one afternoon. What exactly do you compare?</>}
+      />
+
+      {/* early stopping = regularization */}
+      <VIS.TrapProblem
+        id="dopv-p8"
+        difficulty="hard"
+        title="'Early stopping is a poor man's hack — real engineers regularize'"
+        scenario={<>During mock prep, a colleague dismisses your ladder: "early stopping is just interrupting training — a hack. Explicit L2 is the principled fix, so it should come first." How do you respond at the whiteboard?</>}
+        options={[
+          {key:"a", text:"Close relatives, not rivals: stopping at step τ acts like ridge with λ ≈ 1/(τη) — similar effect, but early stopping tunes itself from one curve while L2 buys a λ×LR sweep.", correct:true},
+          {key:"b", text:"Concede the point: early stopping addresses only optimization noise, not model capacity, so it cannot substitute for a true regularizer on an overfit model."},
+          {key:"c", text:"Counter that early stopping is strictly SUPERIOR: it adapts to the data automatically, so explicit regularization is redundant whenever early stopping is available."},
+          {key:"d", text:"Explain the real difference is where they act: early stopping regularizes the optimizer state and L2 regularizes the weights, so both are always required together."},
+        ]}
+        trap={<>(b) grants the folklore ("just an interruption") that the mathematics contradicts — restricting the solution to the low-curvature neighborhood of the initialization IS capacity control, the same family of effect as L2 (Goodfellow §7.8 makes the λ ≈ 1/(τη) correspondence explicit for the quadratic case). The hack framing is the misconception, not the technique.</>}
+        lens={<>Rungs on the ladder are priced by TUNING COST at similar effect: early stopping needs a patience parameter and the val curve you already have; explicit L2 interacts with the learning-rate schedule (effective per-step shrinkage ≈ λη — and under Adam, L2 and weight decay are not even the same thing, hence AdamW), so it buys a sweep. Preferring the expensive equivalent first is the junior tell the colleague just exhibited — with the caveat (c) overshoots into: the equivalence is approximate, and stacked mild regularizers often do win in production.</>}
+        stretch={<>Under Adam, why does naive L2-in-the-loss behave differently from decoupled weight decay — and which does your framework apply when you type weight_decay=0.01?</>}
+      />
+
+      {/* where CTR overfitting lives: embeddings */}
+      <VIS.TrapProblem
+        id="dopv-p9"
+        difficulty="hard"
+        title="You say 'dropout' — the interviewer asks WHERE the overfitting lives"
+        scenario={<>"Suppose diagnosis confirms variance. You proposed dropout — dropout on WHAT? This model is a typical CTR net: hundreds of millions of parameters, of which 95%+ sit in embedding tables for user_id, title_id, and other high-cardinality features; the MLP on top is small." What is the load-bearing answer?</>}
+        options={[
+          {key:"a", text:"The memorization lives in the embedding tables, so the fixes are embedding-specific: active-row L2, frequency caps, hashing, embedding dropout. MLP dropout barely touches it.", correct:true},
+          {key:"b", text:"Dropout on the MLP is the standard and sufficient answer: the dense layers do the modeling, so regularizing them regularizes the network's decisions."},
+          {key:"c", text:"Apply global weight decay to all parameters uniformly — embeddings included — since decay's whole purpose is to be architecture-agnostic."},
+          {key:"d", text:"Neither matters at this scale: with hundreds of millions of parameters the model is in the over-parameterized regime where classical overfitting does not occur."},
+        ]}
+        trap={<>(c) hides a real implementation bug, not just a strategy error: naive global decay shrinks EVERY embedding row every step — including the millions of rows not in the batch — which is both computationally wasteful and wrong under sparse optimizers (most frameworks silently skip or mishandle it). "L2 on the active rows only" is the phrase that shows you have actually trained one of these.</>}
+        lens={<>Parameter census before regularization strategy: when 95% of weights are per-entity embedding rows, overfitting IS memorization of entities, and the treatment must reach the tables — frequency capping (rare user_ids into an OOV bucket), the hashing trick (collisions as regularization), embedding dropout, active-row L2, sub-linear embedding dims (∝ cardinality^0.25 folk rule). Generic answers (MLP dropout) treat the 5%. This is the Prime-Video-specific connection the 2.5/5 answer never made.</>}
+        stretch={<>Frequency-capping rare title_ids fights memorization but hurts cold-start titles. Which product surface at Prime Video makes that trade painful, and what hybrid softens it?</>}
+      />
+
+      {/* one-epoch phenomenon */}
+      <VIS.TrapProblem
+        id="dopv-p10"
+        difficulty="hard"
+        title="Val loss cliffs at the start of epoch 2 — name the phenomenon"
+        scenario={<>Your epoch-wise curve on the click model shows val loss improving smoothly through the entire first pass, then deteriorating sharply within the first few hundred steps of the SECOND pass — a cliff, not a drift. Dense-feature-only ablations of the same model do not show it.</>}
+        options={[
+          {key:"a", text:"The one-epoch phenomenon of sparse CTR models: on pass two the ID embeddings recall individual rows, so val cliffs — why many production systems train one time-ordered pass.", correct:true},
+          {key:"b", text:"A learning-rate schedule bug: cosine schedules reset at epoch boundaries, and the restart spike is what damages val — fix the scheduler and multi-epoch training works normally."},
+          {key:"c", text:"Data-loader state leakage: epoch two re-shuffles with the same seed, presenting rows in an order the optimizer has adapted to; reseeding per epoch removes the cliff."},
+          {key:"d", text:"Classic gradual overfitting, arriving on schedule: the epoch boundary is coincidental and standard L2 will convert the cliff into a plateau."},
+        ]}
+        trap={<>(d) files a sharp, boundary-aligned, sparse-feature-specific signature under "generic overfitting" — but gradual variance does not know where your epoch boundaries are, and the dense-only ablation refusing to reproduce it is the tell. The named phenomenon (Zhang et al., CIKM 2022) is specifically an embedding-memorization cliff, and standard regularizers largely fail to rescue pass two.</>}
+        lens={<>The cliff is what §sec-missed's "one pass" convention is protecting against: the first time an ID recurs, its embedding row can simply recall the stored residual — so the second epoch converts embeddings from features into a lookup table of the training set. Production practice follows the mechanism: single time-ordered pass (which doubles as progressive validation — every batch is evaluated before it is trained on, the FTRL "trenches" trick), warm-start daily retrains, and if you must multi-epoch, embedding-specific regularization rather than global knobs.</>}
+        stretch={<>Why does the hashing trick (mapping rare IDs into shared buckets) blunt the epoch-2 cliff, when a bigger embedding table sharpens it?</>}
+      />
+
+      {/* downsampling recalibration */}
+      <VIS.TrapProblem
+        id="dopv-p11"
+        difficulty="hard"
+        title="The gap that appeared when someone 'sped up training'"
+        scenario={<>A teammate downsamples negatives 10:1 to cut training cost. Val logloss (computed on the UNSAMPLED validation set) jumps, and the served click probabilities now average ~24% against a true base rate of ~3%. They conclude the model badly overfit the smaller dataset.</>}
+        options={[
+          {key:"a", text:"Not overfitting — calibration by construction: 10:1 downsampling inflates the raw prediction, which must be recalibrated by inverting the downsampling map before it means anything.", correct:true},
+          {key:"b", text:"Confirmed overfitting: fewer negatives = fewer examples = higher variance, and the inflated probabilities are the classic signature of a model memorizing positives."},
+          {key:"c", text:"The validation set is now wrong: once training is downsampled, val must be downsampled identically so both distributions match — that restores the old loss."},
+          {key:"d", text:"AUC should be checked first: if AUC held steady the probabilities are fine as ranks, and calibration is a cosmetic issue the ranker downstream absorbs."},
+        ]}
+        trap={<>(c) "fixes" the number by breaking the estimate — downsampling val too makes the metric internally consistent and externally meaningless (serving traffic is not downsampled). The 8× inflation (3%→24%) matching the 10:1 ratio ≈ the recalibration formula's prediction is the arithmetic fingerprint that this is mechanics, not memorization.</>}
+        lens={<>Class-prior surgery on training data moves the model's implied prior. Writing q for the raw (downsampled-space) prediction and p for the true rate, downsampling maps q = p/(p + (1−p)·w) with w the negative keep-rate (0.1 here); serving must apply the INVERSE, p = w·q/(w·q + 1−q), to recover calibration. Forgetting it corrupts BOTH the offline loss and the served probability. (d)'s comfort is false at Prime Video specifically: pCTR feeds calibrated decisions (ranking blends, guardrails, bidding-like allocation), so calibration is product-critical, not cosmetic — one reason logloss/NE and calibration ratio, not AUC alone, are the CTR metrics of record.</>}
+        stretch={<>Derive the 24% number: with true p≈3% and negative keep-rate w=0.1, plug into q = p/(p + (1−p)·w). Then invert to confirm you get back 3%.</>}
+      />
+
+      {/* AUC vs logloss divergence */}
+      <VIS.TrapProblem
+        id="dopv-p12"
+        difficulty="hard"
+        title="Val logloss is rising, val AUC is still improving — stop or continue?"
+        scenario={<>Training the click model, your early-stopping monitor fires: val logloss has risen for 4 consecutive evals. But val AUC over the same window is still improving. The checkpoint-selection script stops on logloss by default. What is the senior read?</>}
+        options={[
+          {key:"a", text:"They legitimately diverge: AUC sees ranking only, logloss also punishes calibration drift. Stop on what your system consumes — for served probabilities, calibrated logloss.", correct:true},
+          {key:"b", text:"Continue training: AUC is the harder, threshold-free metric, and logloss noise at 3% positives routinely produces false stops that AUC sees through."},
+          {key:"c", text:"The divergence indicates a metrics bug: on the same predictions and labels, ranking and likelihood metrics must move together by construction."},
+          {key:"d", text:"Switch the monitor to accuracy as the tiebreaker, since it is the only metric with a fixed decision threshold matching production."},
+        ]}
+        trap={<>(b) contains a true clause (logloss IS noisier at heavy imbalance — hence patience) welded to a false hierarchy: AUC is not "harder," it is BLIND to calibration by design (invariant to any monotone transform of scores). A model can rank ever better while its probabilities drift ever worse — exactly the divergence observed.</>}
+        lens={<>Metric choice is a statement about what downstream consumes: a pure ranker can early-stop on AUC/NDCG; a pCTR model whose probabilities feed blending and guardrails must stop on calibrated likelihood (logloss, or Normalized Entropy = logloss ÷ prior entropy to make it comparable across base rates). The divergence itself is diagnostic — rising loss + improving AUC = calibration drift, which suggests a calibration-layer fix before any capacity decision. (d) is disqualifying at 3% positives.</>}
+        stretch={<>Normalized Entropy is logloss divided by the entropy of the base rate. What failure of raw logloss does that normalization fix when comparing models across surfaces with different CTRs?</>}
+      />
+
+      {/* val flat-high from step 1 */}
+      <VIS.TrapProblem
+        id="dopv-p13"
+        difficulty="hard"
+        title="Val loss is flat-high from the very first eval — which rung applies?"
+        scenario={<>You run the epoch-wise curve on a variant of the model: train loss falls normally, but val loss starts high and stays FLAT from the first evaluation onward — no U-curve, no drift, just a shelf. A teammate suggests tightening early stopping since "val never improves, so stop immediately."</>}
+        options={[
+          {key:"a", text:"A shelf from step one means nothing good to stop AT — and since train falls normally, it is not bias. It points upstream: a broken val-path feature pipeline, or train/val mismatch.", correct:true},
+          {key:"b", text:"The teammate is right: stopping at step one wastes the least compute, and the earliest checkpoint is by definition the least overfit model."},
+          {key:"c", text:"This is aggressive overfitting occurring within the first eval interval; evaluate every few steps and the missing U-curve will appear at finer resolution."},
+          {key:"d", text:"This is the one-epoch phenomenon arriving early, which sparse CTR models exhibit whenever embedding tables are large relative to data."},
+        ]}
+        trap={<>(c) is the sophisticated dodge — sub-interval overfitting is a real thing worth ruling out once — but a model whose val NEVER improves while train falls normally is not "overfitting very fast": it is learning something that does not transfer AT ALL, which is a different disease. (d) name-drops the wrong signature (the one-epoch cliff requires a good pass one first).</>}
+        lens={<>The epoch curve's shapes map to rungs: U-curve → early stopping; slow drift after a long improvement → mild variance, regularize; FLAT-HIGH SHELF while train descends normally → the problem is upstream of capacity (feature pipeline broken on the val path — nulls, misaligned joins — or genuine train/val mismatch), and no training-time knob applies. (Bias would keep TRAIN high too, so the normal train descent rules it out.) Recognizing which shapes early stopping CANNOT help with is what makes it a diagnostic and not a reflex.</>}
+        stretch={<>Name the two-minute check that distinguishes "broken val feature pipeline" from "distribution mismatch" for this shelf.</>}
+      />
+
+      {/* train-dev split */}
+      <VIS.TrapProblem
+        id="dopv-p14"
+        difficulty="hard"
+        title="One extra split settles 'variance vs mismatch' — which split?"
+        scenario={<>Diagnosis has narrowed to two finalists: genuine variance vs train/val distribution mismatch (val is next-week traffic; train is last month's). You may add ONE extra evaluation set to settle it. Which design decides the question?</>}
+        options={[
+          {key:"a", text:"A train-dev set: held-out rows from TRAIN's own distribution. Train-dev ≈ train while val stays high → mismatch; train-dev also high → genuine variance.", correct:true},
+          {key:"b", text:"A second val set drawn from the same week as the existing val: if both vals agree, the gap is real, which confirms variance."},
+          {key:"c", text:"A k-fold CV over the training month: fold-to-fold variance estimates the model's variance directly, which is the quantity in question."},
+          {key:"d", text:"A holdout from FUTURE data (the week after val): if error keeps rising with distance, the model is overfitting progressively."},
+        ]}
+        trap={<>(b) tests the wrong question — two same-distribution vals agreeing tells you the gap is REPRODUCIBLE, not what causes it; both variance and mismatch reproduce perfectly. The discriminating set must share TRAIN's distribution while being unseen, which neither val replica does.</>}
+        lens={<>The train-dev construction (Ng's ML Yearning) factors the gap into two differences: train→train-dev isolates generalization-at-fixed-distribution (variance), train-dev→val isolates distribution change at fixed generalization (mismatch/shift). One extra split, one clean factorization, and the two finalists get different verdicts — after which the treatments diverge completely (regularize/stop vs reweight/refresh/feature-robustness). (d) measures drift RATE, useful later, but conflates the two finalists at the decision point.</>}
+        stretch={<>Both diagnostics come back positive (some variance AND some mismatch). Which do you treat first on the intervention ladder, and why?</>}
+      />
+
+      {/* val improved, ship it */}
+      <VIS.TrapProblem
+        id="dopv-p15"
+        difficulty="hard"
+        title="'Val improved after my fix — ship it'"
+        scenario={<>After the diagnosis, a teammate applies embedding L2, sees val CE improve 0.42 → 0.36 on the shared validation set the team has been iterating against all quarter, and drafts the launch: "offline win confirmed, requesting deploy." The interviewer asks what stands between this number and a ship decision.</>}
+        options={[
+          {key:"a", text:"Two gaps: a quarter of selection has inflated the shared val set, and offline CE is not online CTR. Gate: fresh temporal holdout, then A/B.", correct:true},
+          {key:"b", text:"Nothing substantive: 0.06 nats is far beyond noise on a large val set, and statistically significant offline wins are what launch reviews exist to certify."},
+          {key:"c", text:"Only the second gap matters: selection on val is washed out once the improvement is large, so the A/B test is the single remaining formality."},
+          {key:"d", text:"The number is sufficient if the fix is principled: regularization cannot overfit a validation set, since it reduces model capacity rather than adding it."},
+        ]}
+        trap={<>(d) is subtle and wrong: the FIX cannot overfit val, but the SELECTION of this fix — out of the quarter's many attempted changes, kept because this val set liked it — can. What ships is the survivor of many val-consultations, and survivorship is where the optimism lives.</>}
+        lens={<>The ship gate has two independent clearances: an estimate the team has NOT selected against (fresh temporal holdout — cheap), and evidence the offline metric transfers to the served system (A/B — the only causal instrument). At Prime Video the offline-online gap has specific teeth: pCTR is consumed calibrated, position bias shapes what the log contains, and the model changes its own future training data. "Offline win + fresh holdout + experiment" is the full sentence the rubric wants.</>}
+        stretch={<>Sketch the cheapest defensible version of this gate for a team that can only run one A/B per month. What carries the load between experiments?</>}
+      />
+
+      {/* noisy val early stopping */}
+      <VIS.TrapProblem
+        id="dopv-p16"
+        difficulty="hard"
+        title="Early stopping fired at eval 7, 11, and 19 across three seeds"
+        scenario={<>You adopt early stopping on the click model. Across three random seeds, the stopper (halt on first val-loss increase) fires at eval 7, 11, and 19 — checkpoint quality varies noticeably. The val set is 40k impressions at ~3% positives (~1,200 clicks).</>}
+        options={[
+          {key:"a", text:"Stop-on-first-increase against ~1,200 effective positives is a coin flip. Use patience (3-5 evals), smoothed curves, a larger or stratified val — and expect seed variance.", correct:true},
+          {key:"b", text:"The variance across seeds proves early stopping is unsuitable for CTR models; replace it with a fixed step budget tuned once on the first seed."},
+          {key:"c", text:"The val set is fine at 40k rows; the instability comes from evaluating too often, and spacing evals further apart will stabilize the trigger."},
+          {key:"d", text:"Seed variance of this size indicates an initialization bug: properly initialized embedding tables make training curves nearly seed-invariant."},
+        ]}
+        trap={<>(c) counts rows instead of INFORMATION: at 3% positives the loss is carried by ~1,200 clicks, and spacing evals just samples the same noisy estimator less often — the trigger's hair-trigger rule, not the calendar, is the bug. (d) inverts a known fact: CTR models are notoriously seed-sensitive (sparse features, embedding init), which is why serious teams compare fixes ACROSS seeds.</>}
+        lens={<>Early stopping is an estimator applied to a noisy curve, and its knobs are statistical: patience trades a few wasted steps for robustness to single-eval noise; smoothing (EMA of val loss) is variance reduction; sizing val by EFFECTIVE positives (not rows) sets the noise floor. The rung stays cheap — these are still trivial knobs next to a λ sweep — but "free" never meant "no statistics." State the patience number in the interview; it signals you have watched one of these curves fire falsely.</>}
+        stretch={<>Rough arithmetic: to halve val logloss noise, roughly how many MORE positives does the val set need — and what log-window change delivers it?</>}
+      />
+
+      {/* rubric capstone: pick the 5/5 transcript */}
+      <VIS.TrapProblem
+        id="dopv-p17"
+        difficulty="hard"
+        title="Four candidate openings — which transcript is the 5/5?"
+        scenario={<>Same prompt, four candidates' first minute. Which one is on the 5/5 trajectory?</>}
+        options={[
+          {key:"a", text:"'First: both losses against the base rate, and a split audit. Then learning curves for the regime. Then interventions cheapest-first with stop conditions, wins confirmed on a fresh holdout before A/B.'", correct:true},
+          {key:"b", text:"'This is textbook variance. I'd apply L2 and dropout, and if the gap persists, reduce depth and add ensembling — proven techniques in priority order of regularization strength.'"},
+          {key:"c", text:"'I'd list every possible cause: overfitting, leakage, shift, label noise, bad splits, seed variance — then try fixes for each in parallel to save calendar time and compare on val.'"},
+          {key:"d", text:"'The metric is the problem: click prediction is ranking, so I'd move evaluation to NDCG and MRR before touching the model, since the CE gap may be an artifact of the wrong loss.'"},
+        ]}
+        trap={<>(c) is the seductive near-miss — it NAMES the full differential diagnosis (better than (b)!) and then squanders it: "try fixes in parallel and compare on val" replaces cheap discriminating OBSERVABLES with expensive treatments-as-tests, burns the val set's selection budget, and cannot attribute which fix mattered. Listing hypotheses is not the same as testing them.</>}
+        lens={<>The rubric's axis is ordering logic under uncertainty, not vocabulary coverage: (a) prices its information (floor anchoring, split audit = minutes) before its interventions, states an escalation path with stop conditions, and pre-commits to honest confirmation. (b) is the 2.5/5 transcript. (d) contains a real observation (ranking metrics matter) promoted into a derailment — the CE gap is evidence regardless. In the room: your first minute should contain a NUMBER you would compute, not a technique you would apply.</>}
+        stretch={<>Rewrite opening (c) into a 5/5 by changing only its second half. What replaces "try fixes in parallel"?</>}
+      />
+
+      {/* retrain cadence coupling */}
+      <VIS.TrapProblem
+        id="dopv-p18"
+        difficulty="hard"
+        title="The λ that was perfect in the notebook and wrong in the pipeline"
+        scenario={<>Your regularization sweep — run offline on a static 30-day snapshot, multi-epoch — picks λ=0.003. Production, however, retrains DAILY with warm-started weights, each run a single pass over yesterday's data. Deployed, the production model drifts toward memorizing frequent users within two weeks. What did the sweep miss?</>}
+        options={[
+          {key:"a", text:"Under daily warm starts, frequent entities recur across runs and exposure accumulates — a λ tuned on one multi-epoch batch job under-regularizes the incremental pipeline.", correct:true},
+          {key:"b", text:"Nothing — λ is a property of the model architecture, not the training schedule, so the notebook value transfers; the drift must come from data quality decay."},
+          {key:"c", text:"The sweep's error was using 30 days of data when production uses one: λ should be scaled up 30× to match the smaller daily dataset."},
+          {key:"d", text:"Warm starting is the bug itself: correctly engineered CTR pipelines retrain from scratch daily precisely so that regularization tuned offline stays valid."},
+        ]}
+        trap={<>(c) applies the right instinct (regularization strength interacts with data size) with cartoon arithmetic — the coupling here is not the per-run row count but the ACCUMULATED exposure of recurring entities across warm-started runs, which no single-run scaling rule captures. (d) throws away warm starting, which is how these systems track drift at all.</>}
+        lens={<>Regularization is a property of the TRAINING PROCESS, not the model: the process includes cadence, warm starts, and recurrence structure. A daily warm-start pipeline is, effectively, slow-motion multi-epoch training over the recurring population — the one-epoch discipline per run does not fully protect you (this is drill p10's mechanism stretched across days), so embedding-specific decay or frequency capping must carry more of the load. Tune λ inside a REPLAY of the production cadence, not in a notebook that resembles it.</>}
+        stretch={<>Design the cheapest offline replay that would have caught this: what do you simulate, over how many virtual days, measuring what?</>}
+      />
+
+      {/* excess risk decomposition */}
+      <VIS.TrapProblem
+        id="dopv-p19"
+        difficulty="hard"
+        title="Which term of the risk decomposition does each intervention touch?"
+        scenario={<>Whiteboard moment: excess risk ≈ approximation error (model class too simple) + estimation error (finite sample; variance) + optimization error (didn't find the minimum). The interviewer asks you to place three interventions — L2 regularization, more training data, and fixing a train/val distribution mismatch — against those terms.</>}
+        options={[
+          {key:"a", text:"L2 trades estimation for approximation error; more data attacks estimation only; a mismatch lives in NONE of the terms — the decomposition assumes one distribution.", correct:true},
+          {key:"b", text:"L2 reduces approximation error by smoothing the hypothesis class; more data reduces optimization error by giving SGD more steps; mismatch is a form of estimation error at the population level."},
+          {key:"c", text:"All three interventions reduce estimation error through different mechanisms, which is why they are interchangeable rungs on the same ladder."},
+          {key:"d", text:"The decomposition applies only to linear models; for deep CTR networks the terms are not separable and the question is ill-posed."},
+        ]}
+        trap={<>(b) reads plausibly and misfiles every term — the giveaway is "mismatch is estimation error at the population level," which quietly assumes the population is shared. The decomposition's fine print IS the answer: all three terms are defined under ONE distribution, and shift violates the premise rather than inflating a term.</>}
+        lens={<>The decomposition is a routing table for the ladder: regularization and early stopping move along the estimation↔approximation tradeoff; data volume shrinks estimation; optimization error is schedules and convergence checks. Anything caused by distribution change is OUTSIDE the table — which is the formal version of why drill p5's "regularize the leakage away" and "regularize the shift away" both fail: the knob you are turning is not connected to the term that is broken.</>}
+        stretch={<>Where does early stopping sit in this routing table — which term does it primarily trade against which?</>}
+      />
+
+      {/* regularize-until-plausible anti-pattern at org scale */}
+      <VIS.TrapProblem
+        id="dopv-p20"
+        difficulty="hard"
+        title="The dashboard rule that institutionalizes the anti-pattern"
+        scenario={<>A platform team proposes an org-wide health rule for ranking models: "train/val gap must stay under 0.05 nats; models exceeding it get their regularization auto-increased until back in band." It ships as an automated remediation. Six months later, which failure has this system been silently manufacturing?</>}
+        options={[
+          {key:"a", text:"Every data bug now gets sedated instead of found: leaks and shifts present as gaps, and auto-remediation degrades models until dashboards look plausible.", correct:true},
+          {key:"b", text:"Nothing systematic: gap size is a legitimate health metric, and automatic regularization is simply early stopping applied at the fleet level."},
+          {key:"c", text:"The rule's only flaw is the threshold: 0.05 nats is too tight for CTR models, and widening the band to 0.15 removes the failure mode."},
+          {key:"d", text:"The failure is compute waste: retraining with higher λ is expensive, so remediation should batch weekly rather than trigger per-incident."},
+        ]}
+        trap={<>(c) accepts the rule's premise and haggles the number — but no band width fixes a system that responds to EVIDENCE OF DISEASE by suppressing the evidence. The gap is a symptom with four causes; only one of them is treated by λ, and the automation cannot tell which it is facing.</>}
+        lens={<>This is drill p5's anti-pattern given an API and a service-level objective. Monitoring design principle: alert on symptoms, gate remediation on DIAGNOSIS — a gap alert should open an investigation template (dup scan, split audit, temporal-vs-random, per-segment errors) and only a variance-confirmed finding should reach for λ. Automating the treatment while skipping the diagnosis turns the whole fleet's regularization into a dashboard-plausibility dial — the organizational version of the candidate's 2.5/5 reflex.</>}
+        stretch={<>Redesign the rule so automation stays (nobody wants manual fleet ops) but the anti-pattern dies. What does the auto-step do instead of raising λ?</>}
+      />
+
+      {/* gap taxonomy (multi) */}
+      <VIS.TrapProblem
+        id="dopv-p21"
+        difficulty="hard"
+        multiSelect
+        title="Three gaps, three suspects — select every correct pairing"
+        scenario={<>Your monitoring distinguishes three gaps for the click model: train→val, val→test, and offline→online. Select every pairing below that correctly matches a gap to its primary suspect.</>}
+        options={[
+          {key:"a", text:"Train→val gap → generalization failure (variance) or a data problem inflating train (leakage, duplicates).", correct:true},
+          {key:"b", text:"Val→test gap → the team has overfit val through repeated model selection; test, touched once, reveals the inflation.", correct:true},
+          {key:"c", text:"Offline→online gap → serving-time effects the log cannot contain: position bias, feedback loops, calibration consumed by the ranker, serving skew.", correct:true},
+          {key:"d", text:"Val→test gap → distribution drift between the weeks val and test were collected, which regularization strength controls."},
+          {key:"e", text:"Offline→online gap → val-set overfitting, since online traffic is what val was sampled from."},
+        ]}
+        trap={<>(d) and (e) each shift a real phenomenon one slot over: drift CAN separate val from test (design your splits to check it) but λ has no purchase on it; and val-set overfitting shows up in val→TEST, not offline→online, whose suspects live in the serving stack. Sliding explanations across gaps is how postmortems reach confident wrong conclusions.</>}
+        lens={<>Each gap is an instrument pointed at a different subsystem: train→val watches the MODEL (and the training data's honesty), val→test watches the TEAM (selection discipline), offline→online watches the SYSTEM (serving, bias, feedback). The monitoring corollary: keep all three visible — a healthy train→val gap with a growing offline→online gap sends you to the serving stack, not to λ. One taxonomy, three different on-call pages.</>}
+        stretch={<>Which of the three gaps can be made arbitrarily small WITHOUT making the product better — and what does that imply about using it as a health KPI?</>}
+      />
+
+    </VIS.Section>
   </main>
 );
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
