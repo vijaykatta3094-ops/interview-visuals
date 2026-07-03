@@ -1452,8 +1452,8 @@ flowchart TD
       <VIS.Callout kind="info" title="Sparsity assumption matches the problem">
         High-d problems often have few true predictors — most of the d columns are noise. L1's exact-zero behavior matches this prior. L2 shrinks all weights smoothly but never to zero, so noise features still contribute small amounts and inference is slower.
       </VIS.Callout>
-      <VIS.Callout kind="info" title="Inference cost matters in production">
-        L1's sparse weight vector → sparse matrix-vector products at inference. On wide-input models (ad targeting, semantic search), this is a 5-10× latency win. L2 keeps all features, so you pay full-dense inference cost forever.
+      <VIS.Callout kind="info" title="Inference cost = feature COMPUTATION, not arithmetic">
+        The real production win of an exact zero isn't a faster dot product (that saving is microseconds) — it's that you can DELETE the feature's whole upstream pipeline: the join, the aggregation, the feature-store read, the paid vendor API call. L2's small-but-nonzero weights force every one of those to keep running. Crucial caveat: if the model's input is a dense embedding, weight sparsity deletes nothing upstream — you computed the whole vector to get any dimension — so L1's cost advantage vanishes (drill p6).
       </VIS.Callout>
       <VIS.Callout kind="gotcha" title="When 'same val loss' is misleading">
         L1 and L2 reaching the same val loss with the same α doesn't mean the models are equivalent — they have different feature footprints, different inference cost, and different stability under feature correlations. The production answer depends on what you care about beyond loss.
@@ -1466,6 +1466,386 @@ flowchart TD
         <VIS.Tag color="blue">l1-vs-l2-geometry</VIS.Tag>{" "}
         <VIS.Tag color="blue">curse-of-dimensionality-distance-loses-meaning</VIS.Tag>
       </p>
+    </VIS.Section>
+    <VIS.Section id="sec-drill" title="Re-run the interview — trap drills">
+      <p>
+        Twenty-two problems that re-run this interview the senior way: the deciding axis is feature structure and provenance cost, not "which loss is cheaper to compute." The geometry (why L1 zeros and L2 doesn't) lives on the sibling l1-vs-l2-geometry page; here every problem is a SHIP decision. Decoys are defensible somewhere.
+      </p>
+
+      {/* D — the candidate's wrong axis */}
+      <VIS.TrapProblem
+        id="l1l2p-p1"
+        difficulty="medium"
+        title="'L2 because it's easier to compute' — why did that score 1.5/5?"
+        scenario={<>Two logistic models, identical validation loss: Model A is L1-penalized, Model B is L2. The candidate shipped B "because L2 is easier and faster to compute." The interviewer was unimpressed. What is the actual deciding axis?</>}
+        options={[
+          {key:"a", text:"Feature structure and provenance cost: L1's zeros let you delete upstream pipelines. Both losses are convex and fit in milliseconds — compute is a non-axis.", correct:true},
+          {key:"b", text:"L2 is genuinely the cheaper choice: closed-form ridge solutions avoid the iterative optimization L1 needs, so 'easier to compute' was the right instinct."},
+          {key:"c", text:"With identical validation loss the two models are equivalent, so the candidate was right that any tiebreaker (including compute) is fine."},
+          {key:"d", text:"L2 is safer because it never zeros features, so it cannot accidentally drop a predictive one — robustness, not compute, justifies B."},
+        ]}
+        trap={<>(b) dresses the wrong axis in real-sounding detail: ridge does have a closed form, but that is a fit-time footnote measured in milliseconds, not a production consideration — and L1 solvers (coordinate descent, LARS) are equally trivial to run. "Easier to compute" is a non-axis for a shipped model; the interviewer wanted the production consequences of sparse vs dense.</>}
+        lens={<>When two models tie on offline loss, the decision moves to everything the loss cannot see: which features must be COMPUTED at serving, whether the used-set is auditable, whether it is stable across retrains, and the served artifact's size. L1 and L2 express those differently (sparse vs dense weight structure). Compute-to-fit is identical and irrelevant. Naming the real axis — feature dimensionality and provenance — is the whole question.</>}
+        stretch={<>Name two production properties, invisible to validation loss, that differ between the L1 and L2 models here.</>}
+      />
+
+      {/* C — metric blind to weight structure */}
+      <VIS.TrapProblem
+        id="l1l2p-p2"
+        difficulty="hard"
+        title="Identical val loss, wildly different serving bills"
+        scenario={<>Post-launch surprise: Model A (L1) and Model B (L2) had the same validation loss, but A calls 2 upstream feature services and B calls 12. Finance flags B's serving cost as 5× A's. A reviewer asks how "identical models" can cost so differently.</>}
+        options={[
+          {key:"a", text:"They were never identical — val loss sees predictions only, blind to weight STRUCTURE. Sparse and dense weight vectors can predict alike yet need different features computed.", correct:true},
+          {key:"b", text:"The cost gap is a monitoring artifact: both models use the same features, so B's extra service calls must be a misconfigured feature pipeline, not a model difference."},
+          {key:"c", text:"L2 models are intrinsically more expensive to serve because ridge inference does more arithmetic per prediction than lasso inference."},
+          {key:"d", text:"The loss numbers must have been measured on different splits; truly identical val loss guarantees identical feature usage and therefore identical cost."},
+        ]}
+        trap={<>(c) relocates the cost to arithmetic, the recurring red herring: a dense dot product over even thousands of weights is microseconds and costs nothing meaningful. B's 5× bill is the 12 upstream feature COMPUTATIONS (joins, aggregations, vendor calls) that its nonzero weights force to run — not the multiply-adds.</>}
+        lens={<>Validation loss sees predictions, never the weight vector's sparsity — so two models on the same loss contour can have completely different FEATURE FOOTPRINTS. Production pays for the footprint: every feature with a nonzero weight must be computed, joined, fetched, and monitored on every request. That is why "same val loss" is the setup for a trap, not a reason to flip a coin: the offline metric is structurally incapable of pricing the thing that dominates the serving bill.</>}
+        stretch={<>What single artifact would you diff between the two models to predict this cost gap BEFORE launch?</>}
+      />
+
+      {/* A — inference cost = feature computation */}
+      <VIS.TrapProblem
+        id="l1l2p-p3"
+        difficulty="hard"
+        title="'Sparse weights → faster inference' — what's the real mechanism?"
+        scenario={<>Advocating L1 for a wide ad-targeting model, an engineer writes: "sparse weights mean sparse matrix-vector products, so inference is 5-10× faster — that's the production win." A senior pushes back on the mechanism, not the conclusion. What did the engineer get wrong?</>}
+        options={[
+          {key:"a", text:"The FLOP saving from a sparse dot product is microseconds. The real win is DELETING the upstream computation — joins, feature-store reads, vendor calls — per zeroed feature.", correct:true},
+          {key:"b", text:"Nothing is wrong: sparse BLAS routines are 5-10× faster than dense ones, and that arithmetic speedup is exactly the production benefit."},
+          {key:"c", text:"The engineer undersold it: sparse inference is 50-100× faster, because zeroed weights skip both the multiply and the memory fetch of their features."},
+          {key:"d", text:"The mechanism is memory, not compute: sparse weight vectors fit in cache, and the cache-hit rate is what delivers the latency win."},
+        ]}
+        trap={<>(b) and (c) both keep the false premise (that the ARITHMETIC is the win) and just argue about the multiplier. For a model over even 50k features, the dot product is microseconds either way — invisible next to the tens of milliseconds and the dollars spent FETCHING and COMPUTING those features upstream. The zero's value is a deletion contract on that upstream work, not a faster multiply.</>}
+        lens={<>"Cheaper inference" from L1 is really "cheaper feature COMPUTATION." An exact zero certifies the feature never affects any prediction, so its entire pipeline — the join, the aggregation window, the third-party API call, the drift monitor — can be decommissioned. That upstream cost dominates; the dot-product FLOPs do not. Stating the mechanism correctly is what separates a real production argument from a benchmark myth — and it is exactly what determines whether the win exists at all (see the dense-embedding case).</>}
+        stretch={<>Under what input representation does even a 99%-sparse weight vector save ZERO upstream computation?</>}
+      />
+
+      {/* B — the flip: does it change with d? */}
+      <VIS.TrapProblem
+        id="l1l2p-p4"
+        difficulty="hard"
+        title="The interviewer's real question: does the answer flip with feature count?"
+        scenario={<>"Model A (L1) vs Model B (L2), same val loss — which ship, and does your answer flip as feature count grows?" The candidate said "no, L2 always." When SHOULD the preference flip toward L1 as d grows?</>}
+        options={[
+          {key:"a", text:"It flips toward L1 as d/n grows AND the true signal is sparse: more noise columns, each behind its own pipeline, make L1's zeros (and the deletions) worth more.", correct:true},
+          {key:"b", text:"It never flips: L2 dominates at every feature count because smooth shrinkage always generalizes at least as well as hard zeros."},
+          {key:"c", text:"It flips toward L1 at any high d, purely because sparse inference gets faster relative to dense as the vector grows, regardless of the signal."},
+          {key:"d", text:"It flips toward L2 as d grows, since more features mean more correlations and L2's stability becomes essential above a few thousand columns."},
+        ]}
+        trap={<>(c) makes the flip about arithmetic again — but a high-d model with a DENSE true signal (every feature informative) should stay L2 even at huge d, because there is nothing to zero and nothing to delete. The flip is driven by the sparsity of the TRUTH and the cost of feature provenance, not by d alone.</>}
+        lens={<>The correct pivot has two conditions, not one: preference moves toward L1 as (i) d/n grows with a SPARSE underlying signal (most columns are noise the zeros can remove) and (ii) feature-provenance cost grows (each column behind an expensive/slow/paid pipeline makes deletion worth more). It moves toward L2 when the truth is dense and low-SNR, or when inputs are dense embeddings, or when correlated features demand stability. "Does it flip?" is a real question with a structured answer — "L2 always" earns the 1.5/5.</>}
+        stretch={<>Give a concrete high-d scenario where the answer stays L2 despite d ≫ n.</>}
+      />
+
+      {/* B — scenario: 50k features each behind an ETL */}
+      <VIS.TrapProblem
+        id="l1l2p-p5"
+        difficulty="hard"
+        title="50,000 features, each behind its own vendor call"
+        scenario={<>A risk model can draw on 50,000 candidate features, each computed by a separate ETL job or paid third-party API. L1 and L2 tie on validation AUC; L1 keeps 300 features nonzero, L2 keeps all 50,000 small-but-nonzero. Which ship, and what is the dominant reason?</>}
+        options={[
+          {key:"a", text:"L1: its 49,700 zeros let you decommission those pipelines and vendor contracts entirely — a serving-cost win that dwarfs any tiny accuracy difference.", correct:true},
+          {key:"b", text:"L2: keeping all 50,000 features preserves maximum information, and the tiny weights cost nothing since the dot product is fast either way."},
+          {key:"c", text:"Either: with tied AUC the models are interchangeable, so pick by whichever trained faster or by team familiarity."},
+          {key:"d", text:"L1, but only because a 300-feature model has lower inference latency from the smaller matrix-vector product."},
+        ]}
+        trap={<>(b) is the flagship trap of this page: "keeping all features preserves information" ignores that each of the 50,000 nonzero weights obligates you to COMPUTE its feature on every request — 50,000 joins/aggregations/API calls forever. The dot product being fast is true and irrelevant; the feature computation is the cost. (d) reaches the right answer via the wrong (arithmetic) mechanism.</>}
+        lens={<>This is the canonical L1-wins case: high provenance cost per feature makes each exact zero a decommission-a-pipeline contract. Ship L1, verify the support with stability selection before you actually cut anything (so a correlated-feature reshuffle next retrain doesn't strand you), and monitor only the 300 survivors for drift. The decision is dominated by feature-provenance economics — precisely the axis the candidate never reached.</>}
+        stretch={<>Before decommissioning the 49,700 pipelines, what one precaution prevents a next-retrain disaster?</>}
+      />
+
+      {/* D/F — L1 for latency on dense embeddings */}
+      <VIS.TrapProblem
+        id="l1l2p-p6"
+        difficulty="hard"
+        title="Shipping L1 'for latency' on a 768-d embedding head"
+        scenario={<>A team puts an L1 penalty on the linear head of a model whose input is a 768-d sentence embedding, "to get the sparse-inference latency win." The head zeros 500 of 768 weights. Measured serving latency is unchanged. Why?</>}
+        options={[
+          {key:"a", text:"The whole 768-d embedding must be computed to obtain ANY dimension, so zeroing head weights deletes no upstream work — weight sparsity saves nothing when the input is a dense vector.", correct:true},
+          {key:"b", text:"The zeros were too few: 500 of 768 isn't sparse enough to trigger the sparse-inference code path, so pushing L1 harder to zero 700+ would deliver the latency win."},
+          {key:"c", text:"The embedding model dominates latency, but the head's sparse dot product still helps; the gain is just too small to measure at this batch size."},
+          {key:"d", text:"L1 on an embedding head is a bug: the penalty should be applied to the embedding layer itself to realize the sparsity benefit."},
+        ]}
+        trap={<>(b) chases more sparsity to fix a problem sparsity cannot touch: there is no threshold of zeroed head weights that avoids computing the embedding, because a single surviving weight still needs the full 768-d vector as input. The win was never available here — not too small, structurally absent.</>}
+        lens={<>L1's cost advantage is entirely "delete the upstream feature computation," and a dense embedding has no per-dimension pipeline to delete — you run one encoder to produce all 768 numbers at once. Sparsity in the head buys nothing at serving (and can cost you calibration and stability). This is the mirror of the 50k-ETL-features case: identical L1 mechanism, opposite verdict, because the FEATURE PROVENANCE is dense, not per-feature. Match the regularizer to how features are computed, not to a latency folk-belief.</>}
+        stretch={<>If the embedding itself is the cost, what regularization/compression target would actually reduce serving latency?</>}
+      />
+
+      {/* C/F — correlated-feature support instability */}
+      <VIS.TrapProblem
+        id="l1l2p-p7"
+        difficulty="hard"
+        title="The decommissioned pipeline the next retrain needed back"
+        scenario={<>Based on one L1 fit, a team deletes the ETL for <code>vendorA_score</code> (zeroed) and keeps its correlated twin <code>vendorB_score</code> (ρ≈0.95, nonzero). Next weekly retrain, L1 flips: it now wants <code>vendorA_score</code> and zeros <code>vendorB_score</code> — but vendorA's pipeline is gone. Prediction quality drops until someone notices.</>}
+        options={[
+          {key:"a", text:"L1's choice among correlated features is a near-tie the solver breaks arbitrarily, so the support flips under small data changes. Never wire infra to one fit's support.", correct:true},
+          {key:"b", text:"The retrain used a different random seed; pinning the seed makes L1's support deterministic across retrains and prevents the flip."},
+          {key:"c", text:"vendorB_score drifted this week, so L1 correctly switched to the better feature — the system is working and the only fix is to restore vendorA."},
+          {key:"d", text:"L1 is simply the wrong penalty for correlated features; switching to L2 would keep both features nonzero and remove all serving-cost benefit, which is acceptable."},
+        ]}
+        trap={<>(c) reads a geometry artifact as a data signal: at ρ≈0.95 the two features are near-interchangeable in the objective, so the swap reflects sampling noise breaking a near-tie, not vendorB genuinely degrading. Treating the flip as "the model chose the better feature" leads you to restore vendorA and wait for the next arbitrary swap.</>}
+        lens={<>Among strongly correlated features L1's optimum is nearly degenerate; the solver keeps one and zeros the rest, and which one wins is sensitive to resampling — so the SHIPPED support churns across retrains. Consequences for production: (1) get a stable support via stability selection before decommissioning anything; (2) prefer elastic net when you want sparsity AND a reproducible used-set; (3) never couple infrastructure lifecycle to one fit. (b)'s seed-pinning hides the instability behind determinism without making the choice meaningful.</>}
+        stretch={<>How does elastic net specifically prevent this correlated-feature flip?</>}
+      />
+
+      {/* E — stability selection before decommission */}
+      <VIS.TrapProblem
+        id="l1l2p-p8"
+        difficulty="hard"
+        title="Get a DEFENSIBLE feature list before cutting pipelines"
+        scenario={<>You want L1's decommission win but not the support-churn disaster. Compliance also wants a stable, documented "features used" list. Which procedure produces a support you can safely wire infrastructure to?</>}
+        options={[
+          {key:"a", text:"Stability selection: refit L1 on many subsamples and keep features selected above a frequency threshold — decommission only against that stable set, not one fit's support.", correct:true},
+          {key:"b", text:"Just increase the L1 penalty until the support is small enough to be obviously stable; a harsher λ removes the borderline features that cause churn."},
+          {key:"c", text:"Run one L1 fit on all the data with a fixed seed and treat its support as canonical, since more data gives the single most accurate selection."},
+          {key:"d", text:"Switch to L2 and threshold the coefficients: keep the top-k by magnitude, which gives a stable list without L1's instability."},
+        ]}
+        trap={<>(d) reintroduces a problem from the geometry page: ridge's |w| ranking is not a selection statistic (it shrinks by direction variance and splits weight across correlates), so top-k L2 gives a STABLE but WRONG list — and, because every L2 feature is nonzero, you still can't decommission anything. Stable is not the same as correct or actionable.</>}
+        lens={<>The churn is randomness in WHICH correlated member L1 keeps, so the fix is to integrate over that randomness: subsample, refit, and report features whose selection frequency clears a threshold (Meinshausen &amp; Bühlmann 2010, with false-discovery control). That stable support is what you document for compliance and what you wire pipelines to. (b)'s harsher λ just picks a different arbitrary support and drops real weak signal; (c) trusts a single draw of a near-degenerate optimum.</>}
+        stretch={<>Stability selection gives an expected-false-positives bound. Why does that matter specifically when the "action" is deleting infrastructure?</>}
+      />
+
+      {/* D — L1 always wins in high-d */}
+      <VIS.TrapProblem
+        id="l1l2p-p9"
+        difficulty="hard"
+        title="'It's high-dimensional, so obviously L1'"
+        scenario={<>A polygenic risk model has d=60,000 genetic variants, n=15,000, the trait is highly polygenic (thousands of tiny real effects), and SNR is low. A teammate: "d ≫ n, so L1 for sure." The two penalties don't even tie here — one predicts better. Which, and why?</>}
+        options={[
+          {key:"a", text:"L2 predicts better: the truth is DENSE (many small effects), so hard-zeroing real weak signals throws away most of the total signal — high d alone doesn't imply L1.", correct:true},
+          {key:"b", text:"L1: with d four times n the problem is only well-posed under sparsity, so L1 is the only valid choice regardless of the effect distribution."},
+          {key:"c", text:"L1: at 60,000 features the inference and storage savings from sparsity dominate any small accuracy difference, so ship L1 for the systems win."},
+          {key:"d", text:"They tie by construction: any two penalties reach the same loss at their optimal λ, so the choice is a systems decision, not an accuracy one."},
+        ]}
+        trap={<>(b) invokes a real fact (lasso's support saturates at ≤ n, elastic net fixes it) but draws the wrong conclusion: ridge is perfectly well-posed at d ≫ n (its Hessian gains λI), and it is the DENSE, low-SNR truth that decides the case for L2 — dimensionality is not the criterion. (c) reaches for a systems win that doesn't exist when the accuracy difference is real and favors L2.</>}
+        lens={<>Dimensionality decides your compute strategy; the sparsity of the TRUTH decides your penalty. Sparse truth + costly features → L1. Dense, many-small-effects truth at low SNR (the polygenic regime, ridge/BLUP's home turf) → L2, which shares weight across correlated effects instead of amputating them. "High d ⇒ L1" is exactly the reflex this page teaches you to distrust; ask what the effect-size distribution looks like first.</>}
+        stretch={<>An elastic-net l1_ratio sweep is a cheap diagnostic here. What does l1_ratio→0 winning tell you about the truth?</>}
+      />
+
+      {/* D/F — interpretability trap: selected ≠ important */}
+      <VIS.TrapProblem
+        id="l1l2p-p10"
+        difficulty="hard"
+        title="'L1 selected these 40 features, so they're the important ones'"
+        scenario={<>A data scientist presents the 40 features L1 kept as "the drivers of churn" for the exec deck, and proposes an intervention plan around them. The features are moderately correlated with several others that L1 zeroed. What is the flaw?</>}
+        options={[
+          {key:"a", text:"Selected ≠ important: under correlation L1 keeps one twin, zeros equally-predictive others, and recovery needs unverified conditions — a compressed model, not a driver list.", correct:true},
+          {key:"b", text:"No flaw: L1's whole purpose is feature selection, so its kept features are by definition the important drivers — that is precisely what building a sparse model means."},
+          {key:"c", text:"The flaw is only that 40 is too many to act on; narrowing to the top 5 by coefficient magnitude gives the true drivers."},
+          {key:"d", text:"The flaw is using L1 at all for interpretation; L2 coefficients are the correct importance ranking because they keep every feature."},
+        ]}
+        trap={<>(b) states the seductive misconception outright — "sparse = the important ones" — but L1 selecting a feature says it was the cheapest way to fit THIS sample under the penalty, not that it is causal or even uniquely predictive. A zeroed feature can be just as predictive as its kept correlate; the choice between them was near-arbitrary.</>}
+        lens={<>Zeroed ≠ irrelevant, and selected ≠ causal. Exact support recovery requires the irrepresentable condition (Zhao &amp; Yu 2006) plus adequate signal — unverified here — and under correlation L1 picks one twin and drops the others by a coin flip. The kept set is a compact PREDICTIVE model, not a causal explanation; presenting it as "the drivers" invites interventions on features that may be proxies. If the deliverable is a driver story, that is a causal-inference task, not a lasso support.</>}
+        stretch={<>What would you show the exec INSTEAD of the raw support to honestly convey "which features matter"?</>}
+      />
+
+      {/* F — shrinkage bias into a downstream system */}
+      <VIS.TrapProblem
+        id="l1l2p-p11"
+        difficulty="hard"
+        title="The L1 coefficients that mispriced the bids"
+        scenario={<>An L1 model's coefficients feed a bidding system that multiplies each weight by a feature to compute a bid. Bids come in systematically low on high-value segments. The model's val loss is fine and the ranking is fine; only the magnitudes feeding the bidder are off.</>}
+        options={[
+          {key:"a", text:"L1's soft-thresholding subtracts ~λ from every survivor, biasing magnitudes low — fine for ranking, wrong when a system consumes them. Debias with relaxed lasso.", correct:true},
+          {key:"b", text:"The bids are low because L1 zeroed important features; restoring them with a smaller λ will raise the coefficients and fix the bidding."},
+          {key:"c", text:"This is a calibration problem unrelated to the penalty; a Platt/isotonic layer on the model output will correct the bid magnitudes."},
+          {key:"d", text:"L2 would have the same magnitude bias, so switching penalties won't help; the bidder must be rescaled to compensate."},
+        ]}
+        trap={<>(d) is half-right in a misleading way: L2 also shrinks, but PROPORTIONALLY (β/(1+λ)), which preserves relative magnitudes and can be undone by a single global rescale — whereas L1's CONSTANT ~λ subtraction distorts the coefficients unequally (it bites large and small alike by the same absolute amount), so a global rescale cannot fix it. The bias structures differ, and that difference is the whole point.</>}
+        lens={<>L1's constant-offset shrinkage (soft-thresholding: sign(β)·max(|β|−λ,0)) is invisible to loss and ranking but corrupts coefficient MAGNITUDES, so any system that consumes the magnitudes — bidding, pricing, dollarized risk — inherits a systematic bias. Fixes that keep the sparse support: relaxed lasso (refit OLS on the selected features) or debiased lasso. Diagnostic skill this drills: constant-offset bias fingerprints L1; proportional bias fingerprints L2 — you can tell which penalty touched a model from a coefficient audit.</>}
+        stretch={<>Why does refit-on-support (relaxed lasso) remove the bias while keeping L1's feature-selection benefit?</>}
+      />
+
+      {/* B — dense features, n >> d */}
+      <VIS.TrapProblem
+        id="l1l2p-p12"
+        difficulty="medium"
+        title="200 dense, hand-crafted, all-informative features"
+        scenario={<>A pricing model uses 200 carefully engineered features, n=5M, and domain experts confirm essentially all 200 carry real signal (few strong correlations, nothing is noise). L1 and L2 tie on loss. Which ship?</>}
+        options={[
+          {key:"a", text:"L2: with dense, informative, low-correlation features there is nothing to zero and nothing to delete, so L1's sparsity buys no production win and only risks dropping real signal.", correct:true},
+          {key:"b", text:"L1: exact zeros are always preferable when they are available, and a sparser 200-feature model is inherently cheaper to serve and store than a fully dense one."},
+          {key:"c", text:"Elastic net: mixing L1 and L2 is the universally safe default, so it dominates either pure penalty regardless of the feature structure."},
+          {key:"d", text:"Either: at n=5M the regularizer barely matters relative to the data, so the choice is a coin flip driven by team convenience and familiarity."},
+        ]}
+        trap={<>(c) treats elastic net as a free lunch, but with 200 dense all-informative features there is no sparsity to gain and no instability to fix — the L1 component would only threaten to zero real signal for no deletion benefit. "Always mix" is as much a non-answer as "always L1"; the right default here is pure L2.</>}
+        lens={<>The decision inverts the 50k-ETL case: when features are dense, informative, and cheaply computed together, exact zeros have nothing to delete and every zero risks discarding real signal — so L2's smooth shrinkage (which keeps all 200 and shares weight across the few correlations) is correct. The axis is unchanged (feature structure + provenance); it just points the other way. Recognizing when L1 has NOTHING to offer is as senior as knowing when it wins big.</>}
+        stretch={<>What would have to change about these 200 features to flip the answer toward L1?</>}
+      />
+
+      {/* E — the deletion contract precisely */}
+      <VIS.TrapProblem
+        id="l1l2p-p13"
+        difficulty="hard"
+        title="Why is a 1e-4 weight NOT a deletion contract?"
+        scenario={<>An engineer proposes: "L2 gives tiny weights like 1e-4 to unimportant features — those are basically zero, so let's decommission their pipelines too and save the same money as L1." Where does this break?</>}
+        options={[
+          {key:"a", text:"A 1e-4 weight still affects every prediction, so dropping its feature changes the output — only an EXACT zero certifies the feature is unused and safe to decommission.", correct:true},
+          {key:"b", text:"It works fine: 1e-4 is below floating-point relevance, so removing those features leaves predictions bit-identical and the savings are real."},
+          {key:"c", text:"It works if you first round all weights below 1e-3 to zero, which converts L2 into an equivalent sparse model with the same guarantees as L1."},
+          {key:"d", text:"The issue is only monitoring: the 1e-4 features can be dropped from serving but must still be logged for drift detection, so no cost is saved."},
+        ]}
+        trap={<>(c) is the tempting DIY-sparsity move: thresholding small L2 weights to zero seems to manufacture L1's contract, but it is a post-hoc approximation that changes the model's predictions (unvalidated) and, worse, the SET of small weights is itself unstable across retrains — you've recreated support churn without L1's principled selection. Rounding is not the same as optimizing for sparsity.</>}
+        lens={<>The deletion contract is exact: a weight of precisely 0 means the feature provably never affects any prediction, so its pipeline can be removed with bit-identical output. A 1e-4 weight is a live wire — small, but its feature must still be computed for correctness, and "small enough to drop" is a judgment call that shifts every retrain. This is the mechanical reason L1's zeros are actionable and L2's smallness is not: one is a guarantee, the other an approximation. Post-hoc thresholding trades L1's guarantee for a fragile heuristic.</>}
+        stretch={<>If you genuinely want post-hoc sparsity from a dense model, what validation must you run before decommissioning anything?</>}
+      />
+
+      {/* B — regulated model, auditability */}
+      <VIS.TrapProblem
+        id="l1l2p-p14"
+        difficulty="hard"
+        title="A credit model that must justify every feature to a regulator"
+        scenario={<>A credit-risk model must produce adverse-action reasons and a documented, reproducible "features used" list for regulators. L1 (300 features) and L2 (all 8,000) tie on discrimination metrics. Which is the better production choice and why — beyond cost?</>}
+        options={[
+          {key:"a", text:"L1, stability-selected: a short enumerable support is auditable and per-feature justifiable — pin it with stability selection so the documented list survives retrains.", correct:true},
+          {key:"b", text:"L2: using all 8,000 features is more defensible to a regulator because the model considered every available signal rather than discarding information."},
+          {key:"c", text:"Either: regulators care about discrimination metrics and fairness, not feature count, so the tie makes this a pure engineering choice."},
+          {key:"d", text:"L1, and no extra step needed: any single lasso fit's support is inherently stable enough to document, since the penalty deterministically selects the true features."},
+        ]}
+        trap={<>(d) gets the right penalty but forgets the correlated-feature instability that makes a single fit's support non-reproducible — exactly the property a regulator's "reproducible feature list" requirement punishes. L1 without stability selection can hand you a different documented list every retrain, which is a compliance finding, not a passing audit.</>}
+        lens={<>Interpretability/compliance is a first-class production axis, and it favors sparsity — a 300-feature model yields a short, explainable, per-feature-justifiable used-set, versus 8,000 tiny L2 weights that explain nothing and point at everything. But sparsity alone isn't enough: the list must be REPRODUCIBLE, which requires stability selection to tame the correlated-feature lottery. The senior answer names both the axis (auditability) and the safeguard (stable support), because "L1 for interpretability" without stability is a regulator trap.</>}
+        stretch={<>Beyond the feature list, what does L1's shrinkage bias (p11) imply for the adverse-action reason CODES a regulator sees?</>}
+      />
+
+      {/* C — orthonormal shrinkage contrast */}
+      <VIS.TrapProblem
+        id="l1l2p-p15"
+        difficulty="hard"
+        title="Same feature, different surviving magnitude — which penalty did what?"
+        scenario={<>You audit a coefficient that survived under both penalties. Under L1 it is 0.30; under L2 it is 0.42; the unregularized OLS value is 0.50, and the features are near-orthonormal. A colleague says "L1 just shrinks more aggressively." Precisely characterize the two shrinkages.</>}
+        options={[
+          {key:"a", text:"Different SHAPES, not amounts: L1 subtracts a constant (≈ OLS − λ), L2 scales by a factor (≈ OLS/(1+λ)). Constant offset vs proportional — the production-relevant difference.", correct:true},
+          {key:"b", text:"L1 shrinks more because its penalty grows faster; both are proportional shrinkages and L1 simply uses a larger effective λ on this coefficient."},
+          {key:"c", text:"The numbers are inconsistent: a correctly implemented L1 and L2 at the same λ must shrink any surviving coefficient by the same amount."},
+          {key:"d", text:"L2 shrinks more here (0.42 < 0.50 by less than L1's 0.30), which proves L2 is the more aggressive regularizer on orthonormal features."},
+        ]}
+        trap={<>(b) collapses two different mechanisms into "more vs less": on orthonormal features L1 is soft-thresholding (a CONSTANT subtraction of λ) and L2 is a PROPORTIONAL scaling by 1/(1+λ) — categorically different maps, not the same shrinkage with different strength. The shape difference, not the magnitude, is what determines the downstream magnitude bias.</>}
+        lens={<>Orthonormal design makes the contrast exact: L1 → max(|β|−λ, 0)·sign(β) (constant offset), L2 → β/(1+λ) (proportional). This is why L1's surviving coefficients carry a constant-offset bias that a global rescale can't fix, while L2's proportional shrink preserves relative magnitudes and can. (The full geometry lives on the sibling page; here the point is the PRODUCTION consequence — which bias your downstream consumer inherits.) "Shrinks more" is the wrong frame; "shrinks differently" is the senior one.</>}
+        stretch={<>Given only a coefficient audit (no labels), how would you tell whether L1 or L2 produced a model?</>}
+      />
+
+      {/* D — pick by CV */}
+      <VIS.TrapProblem
+        id="l1l2p-p16"
+        difficulty="hard"
+        title="'Just cross-validate and pick the winner'"
+        scenario={<>Faced with the L1-vs-L2 decision, an engineer proposes: "run CV on both, ship whichever has lower validation loss — let the data decide." In this problem the two TIE on CV loss. What does CV fail to capture that the decision actually hinges on?</>}
+        options={[
+          {key:"a", text:"CV measures accuracy only — blind to feature-computation cost, auditability, and support stability, the exact axes that separate a tied L1 from a tied L2.", correct:true},
+          {key:"b", text:"Nothing important: if CV ties, the models are genuinely equivalent and any tiebreaker is arbitrary, so CV has fully answered the question."},
+          {key:"c", text:"CV fails only because the folds are too few; nested CV with more folds would break the tie and reveal the true best penalty."},
+          {key:"d", text:"CV captures everything relevant; the tie means you should ensemble the two models to combine their strengths."},
+        ]}
+        trap={<>(b) is the tie-means-equivalent fallacy this whole page attacks: a CV tie means equal ACCURACY, not equal models. The two tied models have different feature footprints, serving costs, audit stories, and retrain stability — none of which CV loss can see. "Let the data decide" only decides the axis the data metric measures.</>}
+        lens={<>Cross-validation optimizes for generalization accuracy, so it is the right tool for choosing λ or comparing model families on predictive quality — and the WRONG tool for a decision that hinges on production properties orthogonal to accuracy. When offline metrics tie (or nearly), the decision moves to cost, auditability, and stability, which you evaluate with a serving-cost estimate, a support-stability check, and a compliance review — not another CV run. Knowing which decisions CV cannot make is part of using it well.</>}
+        stretch={<>Design the one-page "tiebreaker scorecard" you'd fill in when CV ties on an L1-vs-L2 choice.</>}
+      />
+
+      {/* E — elastic net as production default */}
+      <VIS.TrapProblem
+        id="l1l2p-p17"
+        difficulty="hard"
+        title="When is elastic net the right production default — and when is it not?"
+        scenario={<>A platform team wants a single default regularizer for their tabular models. Someone proposes "elastic net always — it's L1 plus L2, so it strictly dominates both." When is that reasoning right, and when is it lazy?</>}
+        options={[
+          {key:"a", text:"Right when you want sparsity AND stability under correlation (zeros, but weight shared across clusters); lazy as a blanket rule — pure L2 for dense features, pure L1 for the smallest support.", correct:true},
+          {key:"b", text:"Always right: elastic net contains both penalties as special cases, so tuning l1_ratio can never do worse than either pure choice on any dataset."},
+          {key:"c", text:"Always lazy: elastic net's two hyperparameters make it meaningfully harder to tune, so a single pure penalty is preferable in essentially every production setting."},
+          {key:"d", text:"Right only at d ≫ n, because that is the sole regime where elastic net's ability to select more than n features (which lasso cannot) actually matters."},
+        ]}
+        trap={<>(b) is technically-true-but-operationally-lazy: yes, elastic net CONTAINS L1 and L2 as endpoints, so with perfect tuning it can't lose — but "can't lose with perfect tuning" ignores the extra hyperparameter, the interpretability cost of a fuzzier support, and the fact that for dense features the L1 component only risks zeroing real signal. Dominance in theory is not a default in practice.</>}
+        lens={<>Elastic net earns its place for a specific job: sparsity you can act on PLUS stability under correlation (its grouping effect keeps correlated twins together instead of flipping between them, and it escapes lasso's ≤ n saturation at d ≫ n). That makes it the right production default when correlated features would otherwise churn your support. But "always mix" is a non-decision — dense informative features want pure L2, and a minimal auditable support wants pure L1. Pick by the feature structure, the same axis as everything else on this page.</>}
+        stretch={<>Which single dataset property most strongly argues for elastic net over pure L1 in production?</>}
+      />
+
+      {/* F — val-loss-only selection post-launch surprise */}
+      <VIS.TrapProblem
+        id="l1l2p-p18"
+        difficulty="medium"
+        title="Chose on val loss, discovered the serving cost at launch"
+        scenario={<>A team picked between L1 and L2 purely on validation loss (L2 won by 0.1%), shipped L2, and discovered post-launch that L2's model calls 12 vendor APIs where the L1 model would have called 2. The 0.1% loss win costs 6× the serving bill. What was the process failure?</>}
+        options={[
+          {key:"a", text:"Serving cost was never a selection criterion: the choice optimized a 0.1% accuracy delta while ignoring feature-provenance cost, which should have been estimated first.", correct:true},
+          {key:"b", text:"No failure: 0.1% lower loss is a real accuracy win, and choosing the more accurate model is always correct regardless of serving cost."},
+          {key:"c", text:"The failure was not using nested cross-validation, which would have shown the 0.1% gap was within noise and defaulted the choice to the cheaper L1."},
+          {key:"d", text:"The failure was shipping L2 at all; L1 is always the correct production default and L2 should never be chosen."},
+        ]}
+        trap={<>(b) treats any accuracy win as decisive, which is exactly how the trap springs: a 0.1% loss improvement that triples the serving bill is a bad trade, and a selection process that can't see the trade will make it every time. Accuracy is one axis among several, not the tiebreaker of record. (d) overcorrects into "always L1," the mirror error.</>}
+        lens={<>The fix is to put the production axes INTO the selection: alongside val loss, estimate each candidate's feature footprint (how many features nonzero → how many pipelines/vendor calls), its support stability, and its auditability, then decide on the whole scorecard. A 0.1% accuracy delta rarely outweighs a 6× serving cost — but only a process that quantifies both can say so. Choosing on offline loss alone guarantees you discover the other axes in production, expensively.</>}
+        stretch={<>What lightweight number, computable at model-selection time, would have surfaced the 6× cost gap?</>}
+      />
+
+      {/* A — artifact size / monitoring surface */}
+      <VIS.TrapProblem
+        id="l1l2p-p19"
+        difficulty="medium"
+        title="The 2-million-column model that shipped as 8 KB"
+        scenario={<>A search-ranking model has 2 million one-hot feature columns. The L1 version has 9,000 nonzero weights; the L2 version has all 2 million nonzero. Beyond inference, name the production properties where this gap matters.</>}
+        options={[
+          {key:"a", text:"Artifact size (9k-nonzero CSR vs a 2M dense array) and monitoring surface (9k vs 2M features to watch) — both shrink to the support under L1, stay full under L2.", correct:true},
+          {key:"b", text:"None beyond inference: the weight vector's storage and the monitoring are negligible costs, so only the dot-product speed differs."},
+          {key:"c", text:"Only training memory: L2's 2M weights need more RAM to fit, but once served the two artifacts are identical in size and monitoring cost."},
+          {key:"d", text:"Only accuracy: with 2M columns L2 will always overfit and L1 will always generalize, so the real gap is generalization, not systems properties."},
+        ]}
+        trap={<>(b) waves away storage and monitoring as negligible, but at 2 million columns they are not: a dense 2M-float artifact is ~8 MB versus an 8 KB sparse one (a 1000× difference that matters for edge/mobile deploy and load time), and a drift-monitoring system must track every nonzero feature — 2 million monitors vs 9,000 is an operational chasm.</>}
+        lens={<>Sparsity's production dividends extend past latency to the whole lifecycle: the served ARTIFACT is a sparse vector (CSR) that is orders of magnitude smaller, and the MONITORING SURFACE shrinks to the support (you only watch the features the model actually uses for drift). At 2M candidate columns these are first-order operational wins, not footnotes. The exact-zero structure is what makes them possible — L2's all-nonzero vector forces full-size storage and full-surface monitoring regardless of how tiny the weights are.</>}
+        stretch={<>Which of these sparsity dividends survives, and which vanishes, if the 2M one-hots are replaced by a dense 256-d embedding?</>}
+      />
+
+      {/* B3 — pitch the choice to a skeptical stakeholder */}
+      <VIS.TrapProblem
+        id="l1l2p-p20"
+        difficulty="hard"
+        title="Justify shipping L1 to a VP who only sees the 0.1% loss gap"
+        scenario={<>Offline, L2 beats L1 by 0.1% validation loss. You want to ship L1. The VP asks: "why ship the less accurate model?" Give the argument that actually holds for THIS decision.</>}
+        options={[
+          {key:"a", text:"L1's zeros let us decommission ~40 feature pipelines and vendor contracts, cutting serving cost several-fold and shrinking the audit surface — worth far more than 0.1% loss.", correct:true},
+          {key:"b", text:"L1 is the more modern, principled regularizer with better theoretical guarantees, so shipping it future-proofs our modeling stack."},
+          {key:"c", text:"L1 is faster at inference because sparse dot products do less arithmetic per request, which directly improves the user-facing latency the VP cares about."},
+          {key:"d", text:"The 0.1% loss difference is within noise, so the models are effectively equal and we can ship whichever we prefer on style."},
+        ]}
+        trap={<>(c) makes the case on arithmetic latency — the myth this page keeps dismantling — which a technical VP can puncture ("a dot product is microseconds"). (d) waves the gap away as noise, conceding the accuracy frame instead of winning on the axis that actually favors L1: the decommissioned upstream work.</>}
+        lens={<>The pitch that survives is anchored in the exact-zero MECHANISM turned into money: each zero is a deletion contract on a feature's pipeline, so L1 buys decommissioned ETL jobs, cancelled vendor contracts, a smaller served artifact, and a shrunken monitoring/audit surface — concrete, quantifiable savings that dwarf a 0.1% loss delta. State the honest caveat too (if inputs were dense embeddings, this argument collapses — they aren't here). A justification that would still hold with "L1" swapped for any buzzword wasn't about L1; this one turns on what the zeros let you delete.</>}
+        stretch={<>The VP says "then why not L2, decommission its smallest-weight features, and keep the 0.1%?" Answer in one sentence.</>}
+      />
+
+      {/* F — reverse-engineer from a production symptom */}
+      <VIS.TrapProblem
+        id="l1l2p-p21"
+        difficulty="hard"
+        title="Symptom: the 'features used' list changes every retrain"
+        scenario={<>A shipped L1 model's documented feature list changes noticeably each weekly retrain — 15-20% of the support turns over — while validation AUC is flat and stable. Compliance flags the churning list as an audit problem. Root cause and fix?</>}
+        options={[
+          {key:"a", text:"Correlated features make L1's support near-degenerate, so the kept twin flips under weekly noise while predictions hold. Fix: stability selection or elastic net.", correct:true},
+          {key:"b", text:"The model is genuinely tracking changing signal week to week; the churning list is correct behavior and compliance should accept a dynamic feature list."},
+          {key:"c", text:"The retrains use different random seeds; fixing the seed makes the support identical across weeks and satisfies the auditor's reproducibility requirement."},
+          {key:"d", text:"20% turnover means the model is unstable and overfitting; adding L2 on top and increasing regularization until AUC drops will stabilize it."},
+        ]}
+        trap={<>(b) reads geometry-driven churn as signal tracking, but the stable AUC is the tell: if the support were changing because the useful features genuinely changed, predictive quality would move — instead it's flat, the fingerprint of L1 swapping between interchangeable correlated features. (c)'s seed-pin makes the list reproducible but arbitrary (a fixed coin flip is still a coin flip), which doesn't give compliance a MEANINGFUL support.</>}
+        lens={<>Support churn + stable predictions = the correlated-feature lottery, not drift. The reverse-engineering move is to read the joint signature (which quantity moved, which didn't): stable AUC rules out real signal change and points at near-degenerate selection. The fix reports the stable core rather than one draw of it — stability selection (features above a selection-frequency threshold) or elastic net's grouping effect, either of which gives compliance a reproducible list. Seed-pinning treats the symptom (reproducibility) while leaving the choice meaningless.</>}
+        stretch={<>Compliance now wants BOTH a reproducible list and the decommission savings. Which single technique delivers both, and what does it cost you?</>}
+      />
+
+      {/* A5 — deliver the 5/5 answer */}
+      <VIS.TrapProblem
+        id="l1l2p-p22"
+        difficulty="hard"
+        title="Deliver the 5/5 answer to the original question"
+        scenario={<>"Model A (L1), Model B (L2), same val loss — which ship, and does the answer flip with feature count?" Four candidates answer. Which is the 5/5?</>}
+        options={[
+          {key:"a", text:"'Depends on feature structure and provenance: L1 if features are many, sparse, each costly to compute; L2 if dense/informative or one embedding. Flips to L1 as d/n and per-feature cost grow.'", correct:true},
+          {key:"b", text:"'L2 — it is easier and faster to compute, and with the same validation loss the more computationally efficient model is the safe default production choice.'"},
+          {key:"c", text:"'Whichever CV prefers; since they tie here, ensemble both to hedge, and revisit if serving cost becomes an issue later.'"},
+          {key:"d", text:"'L1 always — exact zeros give feature selection, cheaper inference, and interpretability, which together dominate the tradeoff in essentially every production setting.'"},
+        ]}
+        trap={<>(d) is the confident over-generalization that mirrors the candidate's error from the other side: "L1 always" ignores dense-feature and dense-embedding cases where L1 offers nothing and risks dropping signal. (c) defers the actual decision (serving cost) to "later" — which is when it becomes an expensive surprise — and ensembling doubles the feature footprint, the opposite of the win. (b) is the 1.5/5 answer verbatim.</>}
+        lens={<>The 5/5 answer names the AXIS (feature structure + provenance cost, not compute), gives the CONDITIONAL decision (L1 for many/sparse/costly features, L2 for dense/informative or embedding inputs), and answers the flip question with its two drivers (d/n and per-feature cost pushing toward L1; dense truth and dense inputs toward L2). It treats "same val loss" as the signal to move to production axes, not as license to coin-flip. That structure — axis, conditional, flip conditions, honest caveats — is exactly what the 1.5/5 "L2 because easier to compute" answer lacked.</>}
+        stretch={<>State the one sentence of the 5/5 answer that most directly corrects the candidate's specific mistake.</>}
+      />
+
     </VIS.Section>
   </main>
 );
