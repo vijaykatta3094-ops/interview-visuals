@@ -2330,7 +2330,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> look at what's in each denominator of TPR and FPR.</>}
         options={[
           {key:"a", text:"Because AUROC is computed using a non-parametric rank statistic that integrates out the class proportions during numerical integration."},
-          {key:"b", text:"Because TPR = TP/(TP+FN) depends only on positives and FPR = FP/(FP+TN) depends only on negatives — neither denominator mixes the two classes, so resampling either class leaves the curve unchanged.", correct:true},
+          {key:"b", text:"Because TPR=TP/(TP+FN) depends only on positives and FPR=FP/(FP+TN) only on negatives — neither denominator mixes classes, so resampling either leaves the curve unchanged.", correct:true},
           {key:"c", text:"Because AUROC is mathematically equivalent to accuracy, and accuracy is prevalence-invariant under a fixed decision threshold."},
           {key:"d", text:"Because the trapezoidal-rule integration scheme used to compute AUROC averages over thresholds and cancels prevalence terms in the integral."},
         ]}
@@ -2360,9 +2360,9 @@ flowchart TB
         title="Q3 — A fraud model reports AUROC = 0.95, AUPRC = 0.22 at π = 0.01. Is it good?"
         scenario={<><em>Discriminating insight:</em> compare AUPRC against its random baseline at this prevalence, not against AUROC's baseline.</>}
         options={[
-          {key:"a", text:"Bad — AUPRC = 0.22 is below 0.5, so the model is no better than random ranking on positives."},
+          {key:"a", text:"Bad — AUPRC = 0.22 sits below 0.5, so the model is really no better than random ranking on the positive class at all."},
           {key:"b", text:"Excellent — AUROC = 0.95 indicates the model ranks fraud correctly almost always; AUPRC is a secondary metric that you can ignore."},
-          {key:"c", text:"Strong on ranking but the operating reality depends on AUPRC: 0.22 is a 22× lift over the random baseline π = 0.01, but precision at production thresholds may still be ~20%.", correct:true},
+          {key:"c", text:"Strong on ranking, but the reality is in AUPRC: 0.22 is a 22× lift over the π=0.01 baseline, yet precision at production thresholds may still be ~20%.", correct:true},
           {key:"d", text:"Uninterpretable — AUROC and AUPRC use different denominators so it is not valid to compare them, even on the same dataset."},
         ]}
         trap={<>(a) compares AUPRC against the wrong baseline. (b) dismisses AUPRC, which is the metric stakeholders care about. (d) confuses asking &quot;same dataset?&quot; with &quot;same units?&quot;.</>}
@@ -2376,10 +2376,10 @@ flowchart TB
         title="Q4 — You take a 1%-positive test set and down-sample negatives 10× before reporting AUPRC. What happens?"
         scenario={<><em>Discriminating insight:</em> AUPRC is prevalence-sensitive in BOTH directions — its random baseline shifts with π.</>}
         options={[
-          {key:"a", text:"AUPRC is unchanged because the model's score-rankings are the same and AUPRC is a rank-based metric."},
+          {key:"a", text:"AUPRC is completely unchanged, because the model's score-rankings are identical and AUPRC is fundamentally a rank-based metric."},
           {key:"b", text:"AUPRC drops because the test set has fewer negatives and the model has fewer chances to demonstrate precision."},
-          {key:"c", text:"Reported AUPRC rises because precision = TP/(TP+FP) improves when FP candidates are removed; but the number no longer reflects deployment prevalence and is misleading.", correct:true},
-          {key:"d", text:"AUROC drops to 0.5 because the test set no longer matches the training-time class balance."},
+          {key:"c", text:"Reported AUPRC rises because precision improves when FP candidates are removed; but the number no longer reflects deployment prevalence — it misleads.", correct:true},
+          {key:"d", text:"AUROC drops all the way to 0.5, because the test set no longer matches the training-time class balance the model expects."},
         ]}
         trap={<>(a) is the AUROC behaviour, not AUPRC. (b) reverses the sign. (d) misattributes — AUROC is invariant to test-set prevalence.</>}
         lens={<>(c). This is the classic AUPRC-on-rebalanced-test-set trap. Reported AUPRC looks great, but the model in production faces deployment prevalence, where precision will be far lower. Test sets must mirror deployment, full stop.</>}
@@ -2421,10 +2421,10 @@ flowchart TB
         title="Q7 — Why does the PR curve end at (recall = 1, precision = π) when the threshold goes to 0?"
         scenario={<><em>Discriminating insight:</em> consider the threshold sweep from very strict (high score required) to very loose (everything labelled positive).</>}
         options={[
-          {key:"a", text:"At threshold = 1, no samples are predicted positive, so precision is undefined and the curve doesn't start there. At threshold = 0, everything is positive, so precision = π and recall = 1.", correct:true},
+          {key:"a", text:"At threshold 1, nothing is predicted positive so precision is undefined; at threshold 0, everything is positive, so precision = π and recall = 1.", correct:true},
           {key:"b", text:"At threshold = 1, recall = 0 and precision = 1; at threshold = 0, recall = 0 and precision = 0.5 always."},
-          {key:"c", text:"The PR curve always starts at (0, 1) and ends at (1, 0) by convention, regardless of prevalence."},
-          {key:"d", text:"It starts at (1, π) and ends at (0, 1 − π) due to symmetry of the precision-recall pair."},
+          {key:"c", text:"The PR curve always starts at exactly (0, 1) and ends at exactly (1, 0) by pure convention, entirely regardless of the prevalence."},
+          {key:"d", text:"It starts at (1, π) and ends at (0, 1 − π), purely due to an assumed symmetry of the precision-recall pair of quantities."},
         ]}
         trap={<>(b) and (d) invent endpoint values. (c) confuses convention with mechanics.</>}
         lens={<>(a). As threshold drops, recall rises (you catch more positives) and precision falls toward π (you flag everything). The right-end of the PR curve is anchored at (recall = 1, precision = π) — which is why the random AUPRC baseline equals π.</>}
@@ -2439,7 +2439,7 @@ flowchart TB
         options={[
           {key:"a", text:"The Bayes-optimal decision boundary at each threshold, which trades off TPR against FPR optimally."},
           {key:"b", text:"A perfect classifier — both TPR and FPR are equal at the same threshold, so the model never errs."},
-          {key:"c", text:"A random classifier: TPR = FPR at every threshold, so AUROC = 0.5.", correct:true},
+          {key:"c", text:"A random classifier: TPR = FPR at every threshold, so the area beneath the diagonal is exactly AUROC = 0.5.", correct:true},
           {key:"d", text:"The boundary between calibrated and miscalibrated models; lines above it are well-calibrated."},
         ]}
         trap={<>(a) confuses random baseline with Bayes optimum. (b) flips perfection — perfect is the (0,1) corner. (d) invents a calibration interpretation.</>}
@@ -2453,7 +2453,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> there's a known mathematical correspondence — but with a one-way directionality.</>}
         options={[
           {key:"a", text:"Curves are independent: a high AUROC and a high AUPRC carry strictly different information that cannot be deduced from one another."},
-          {key:"b", text:"There is a one-to-one mapping between PR points and ROC points for a fixed dataset, and a curve dominates in ROC space if and only if it dominates in PR space.", correct:true},
+          {key:"b", text:"There is a one-to-one mapping between PR and ROC points for a fixed dataset, and a curve dominates in ROC space iff it dominates in PR space.", correct:true},
           {key:"c", text:"AUROC always lower-bounds AUPRC; if AUROC = a, then AUPRC at least a · π."},
           {key:"d", text:"PR curves are convex by construction while ROC curves can be non-convex; this is the structural difference between the two."},
         ]}
@@ -2469,9 +2469,9 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> ROC curves are safe to interpolate linearly; PR curves are not. Why?</>}
         options={[
           {key:"a", text:"Linear interpolation in PR space is fine; precision and recall are both bounded on [0,1] so the straight line stays valid."},
-          {key:"b", text:"Linear interpolation in PR space over-estimates precision between operating points because the achievable precision between two TP counts is nonlinear in FP — use the Davis–Goadrich interpolation instead.", correct:true},
-          {key:"c", text:"Linear interpolation under-estimates AUPRC, so most libraries already correct for it by adding a constant offset."},
-          {key:"d", text:"It is safe if and only if the classifier is calibrated; calibration ensures monotonicity of precision in recall."},
+          {key:"b", text:"Linear PR interpolation over-estimates precision between points, because achievable precision between two TP counts is nonlinear in FP — use Davis–Goadrich instead.", correct:true},
+          {key:"c", text:"Linear interpolation under-estimates AUPRC, so most libraries already quietly correct for it by adding some fixed constant offset."},
+          {key:"d", text:"It is safe if and only if the classifier happens to be calibrated; calibration is what ensures monotonicity of precision in recall."},
         ]}
         trap={<>(a) ignores the well-known interpolation issue. (c) and (d) invent corrections that don't exist.</>}
         lens={<>(b). Between two PR points, achievable precision lies on a curved trajectory, not a straight line. Naive linear interpolation inflates AUPRC by 1–2 points. Use the Davis–Goadrich step interpolation (or sklearn's <code>average_precision_score</code>) which weights by recall increments.</>}
@@ -2484,7 +2484,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> sklearn distinguishes the area under the PR curve from a related summary statistic that's actually different.</>}
         options={[
           {key:"a", text:"sklearn.metrics.roc_auc_score with average='precision_recall' — a parameter on the AUROC function."},
-          {key:"b", text:"sklearn.metrics.average_precision_score — sums precision at each recall step, which is the recommended estimator and equals AUPRC under step interpolation.", correct:true},
+          {key:"b", text:"sklearn.metrics.average_precision_score — sums precision at each recall step; the recommended estimator, equals AUPRC under step interpolation.", correct:true},
           {key:"c", text:"sklearn.metrics.auc on the output of precision_recall_curve with trapezoidal integration; this is the canonical and most accurate route."},
           {key:"d", text:"sklearn.metrics.f1_auc — F1 area under the curve; AUPRC and F1-AUC are mathematically equivalent."},
         ]}
@@ -2498,8 +2498,8 @@ flowchart TB
         title="Q12 — Multi-class extension: how is AUPRC typically reported?"
         scenario={<><em>Discriminating insight:</em> the natural extension treats each class as a one-vs-rest binary problem and aggregates.</>}
         options={[
-          {key:"a", text:"AUPRC is undefined for multi-class problems; use multi-class log-loss instead."},
-          {key:"b", text:"Macro-averaged AUPRC (mean of per-class AUPRC) or micro-averaged (pool all predictions and compute one PR curve); micro is sensitive to dominant classes, macro treats each class equally.", correct:true},
+          {key:"a", text:"AUPRC is entirely undefined for multi-class problems, so you should just use multi-class log-loss as the metric instead."},
+          {key:"b", text:"Macro AUPRC (mean of per-class) or micro (pool all predictions into one PR curve); micro is sensitive to dominant classes, macro treats each class equally.", correct:true},
           {key:"c", text:"AUPRC is averaged via softmax temperature across all classes, weighted by the maximum-probability prediction per sample."},
           {key:"d", text:"Multi-class AUPRC uses a multinomial extension that requires a generalised confusion tensor; not standardly implemented in any major library."},
         ]}
@@ -2514,10 +2514,10 @@ flowchart TB
         title="Q13 — F1 score and AUPRC: relationship?"
         scenario={<><em>Discriminating insight:</em> F1 is a single operating-point summary; AUPRC is a curve summary.</>}
         options={[
-          {key:"a", text:"F1 = AUPRC under uniform threshold sweeping; the two are mathematically identical when the model is calibrated."},
-          {key:"b", text:"F1 is the harmonic mean of precision and recall at one threshold; AUPRC integrates precision over recall across all thresholds — F1-at-best-threshold approximates a single point on the PR curve.", correct:true},
+          {key:"a", text:"F1 equals AUPRC under a uniform threshold sweep; the two are exactly mathematically identical whenever the model is calibrated."},
+          {key:"b", text:"F1 is the harmonic mean of precision and recall at ONE threshold; AUPRC integrates precision over recall across ALL thresholds — F1 is a single PR point.", correct:true},
           {key:"c", text:"F1 is the AUPRC of the binary indicator function (label ≥ threshold), so the two coincide for thresholded classifiers."},
-          {key:"d", text:"F1 = 2 · AUPRC / (1 + AUPRC); this is the direct formula used in most ML libraries."},
+          {key:"d", text:"F1 = 2·AUPRC / (1 + AUPRC); this is the direct closed-form formula that is used inside most of the major ML libraries."},
         ]}
         trap={<>(a), (c), (d) invent identities. F1 and AUPRC measure different things — one is a point, the other is an area.</>}
         lens={<>(b). F1 collapses precision and recall at one threshold into one number; AUPRC summarises the whole curve. Use F1 when you've already chosen an operating threshold; use AUPRC for threshold-agnostic model comparison.</>}
@@ -2529,10 +2529,10 @@ flowchart TB
         title="Q14 — A team brags about AUROC = 0.99 on a 99.99/0.01 imbalanced task. Reasonable to celebrate?"
         scenario={<><em>Discriminating insight:</em> at extreme imbalance, AUROC can be misleadingly close to 1 while AUPRC stays close to its random baseline π.</>}
         options={[
-          {key:"a", text:"Yes — AUROC = 0.99 is near-perfect and indicates a strong model regardless of prevalence."},
-          {key:"b", text:"Not by itself — at π = 0.0001, even AUROC = 0.99 can correspond to AUPRC near 0.05, meaning most flagged positives are still false alarms. Always ask for AUPRC and precision-at-K.", correct:true},
-          {key:"c", text:"Not in the slightest — AUROC is meaningless on heavily-imbalanced data and should be ignored."},
-          {key:"d", text:"Yes, but only after confirming the test set was rebalanced to 50/50 for fair comparison with balanced benchmarks."},
+          {key:"a", text:"Yes — an AUROC of 0.99 is near-perfect and clearly indicates a strong, deployable model regardless of the prevalence."},
+          {key:"b", text:"Not by itself — at π=0.0001, even AUROC=0.99 can mean AUPRC near 0.05, so most flagged positives are still false alarms. Ask for AUPRC and precision-at-K.", correct:true},
+          {key:"c", text:"Not in the very slightest — AUROC is entirely meaningless on heavily-imbalanced data and should just be ignored completely."},
+          {key:"d", text:"Yes, but only after first confirming that the test set had been rebalanced to a clean 50/50 for fair comparison against the balanced benchmarks."},
         ]}
         trap={<>(a) takes AUROC at face value. (c) overcorrects — AUROC isn't meaningless, just incomplete. (d) endorses the test-set rebalancing leakage error.</>}
         lens={<>(b). At extreme imbalance, AUROC saturates near 1 long before the model is usable. The fraction of false positives in the alert queue is what matters, and only AUPRC, precision-at-K, or recall-at-precision-α capture that.</>}
@@ -2545,7 +2545,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> AUPRC depends only on the score RANKING, not on the absolute probability values.</>}
         options={[
           {key:"a", text:"Yes — AUPRC integrates probabilities into the area, so an uncalibrated model has biased AUPRC."},
-          {key:"b", text:"No — AUPRC is a rank-based metric. Calibrated probabilities matter for deployment thresholds and stakeholder communication, not for AUPRC itself.", correct:true},
+          {key:"b", text:"No — AUPRC is rank-based. Calibrated probabilities matter for deployment thresholds and stakeholder communication, not for AUPRC itself.", correct:true},
           {key:"c", text:"Only if you use sklearn's average_precision_score; other implementations are calibration-invariant."},
           {key:"d", text:"AUPRC requires calibrated probabilities under the binary case but not under multi-class, due to the softmax temperature parameter."},
         ]}
@@ -2559,8 +2559,8 @@ flowchart TB
         title="Q16 — &quot;Our model has AUPRC = 0.6 and the random baseline is 0.05.&quot; What's the lift?"
         scenario={<><em>Discriminating insight:</em> AUPRC lift = AUPRC / π.</>}
         options={[
-          {key:"a", text:"Lift = 0.6 - 0.05 = 0.55, a 55-point improvement over random."},
-          {key:"b", text:"Lift = 0.6 / 0.05 = 12×, meaning the model concentrates positives in its ranking 12× more densely than random ranking would.", correct:true},
+          {key:"a", text:"Lift = 0.6 − 0.05 = 0.55, which represents a solid 55-percentage-point improvement over the random baseline."},
+          {key:"b", text:"Lift = 0.6 / 0.05 = 12×, meaning the model concentrates positives in its ranking 12× more densely than random.", correct:true},
           {key:"c", text:"Lift = 0.6 × 0.05 = 0.03; the multiplicative form is the standard reporting convention."},
           {key:"d", text:"Lift is undefined unless AUROC is also reported, since lift requires both curves."},
         ]}
@@ -2574,10 +2574,10 @@ flowchart TB
         title="Q17 — Choosing between AUPRC and AUROC for a 5%-positive churn prediction task. Which?"
         scenario={<><em>Discriminating insight:</em> 5% prevalence is borderline — neither metric dominates.</>}
         options={[
-          {key:"a", text:"AUROC alone; 5% is high enough that prevalence-sensitivity is small."},
-          {key:"b", text:"AUPRC alone; below 10% prevalence is always AUPRC territory regardless of business context."},
-          {key:"c", text:"Both — at 5–30% prevalence, report AUROC for ranking robustness and AUPRC for operating-point realism, and let the business decide based on cost of false-positive vs false-negative.", correct:true},
-          {key:"d", text:"Neither — at 5%, use F1 score exclusively; AUROC and AUPRC are both misleading."},
+          {key:"a", text:"AUROC alone is enough here; a 5% prevalence is high enough that the prevalence-sensitivity effect stays quite small."},
+          {key:"b", text:"AUPRC alone is right here; anything below 10% prevalence is always AUPRC territory, regardless of the specific business context."},
+          {key:"c", text:"Both — at 5–30% prevalence, report AUROC for ranking robustness and AUPRC for operating-point realism, and let cost of FP vs FN decide.", correct:true},
+          {key:"d", text:"Neither one — at 5% prevalence you should use only the F1 score, since here both AUROC and AUPRC end up being misleading."},
         ]}
         trap={<>(a) and (b) propose rigid thresholds for what should be a context-aware choice. (d) overclaims F1.</>}
         lens={<>(c). 5–30% prevalence is the gray zone where both metrics are informative and disagree usefully. Reporting both surfaces the cost-tradeoff explicitly and avoids being trapped by either metric's blind spot.</>}
@@ -2589,8 +2589,8 @@ flowchart TB
         title="Q18 — A model has AUROC = 0.95 but precision-at-recall-0.5 is only 0.10. Is AUROC lying?"
         scenario={<><em>Discriminating insight:</em> AUROC's average can hide operating-point pathologies if FPR is small but precision still rotten.</>}
         options={[
-          {key:"a", text:"Yes — AUROC always over-states; reject the model."},
-          {key:"b", text:"No — both numbers are correct but measure different things. AUROC averages TPR over ALL FPRs; precision-at-recall-0.5 measures the operating point that production cares about, and prevalence is hiding in the gap.", correct:true},
+          {key:"a", text:"Yes — AUROC essentially always over-states the true model quality, so you should simply reject this particular model outright and move on."},
+          {key:"b", text:"No — both are correct but measure different things: AUROC averages TPR over ALL FPRs; precision-at-recall-0.5 is the operating point, prevalence hides in the gap.", correct:true},
           {key:"c", text:"Yes — there must be a labelling error, since AUROC = 0.95 mathematically implies precision-at-recall-0.5 above 0.6."},
           {key:"d", text:"No — but only because the test set is too small; with 10× more samples, AUROC and precision-at-recall-0.5 would converge."},
         ]}
@@ -2606,9 +2606,9 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> AUROC is symmetric in a precise sense; AUPRC is not.</>}
         options={[
           {key:"a", text:"Both flip to 1 − original value; both are perfectly symmetric under label inversion."},
-          {key:"b", text:"AUROC maps to 1 − AUROC (symmetric around 0.5); AUPRC changes in a non-symmetric way because the random baseline shifts from π to 1 − π and precision is renormalised.", correct:true},
+          {key:"b", text:"AUROC maps to 1−AUROC (symmetric around 0.5); AUPRC changes non-symmetrically because the baseline shifts from π to 1−π and precision renormalises.", correct:true},
           {key:"c", text:"AUROC is unchanged because it averages TPR over FPR; AUPRC drops to 0 because precision is undefined when the rare class is now the negative class."},
-          {key:"d", text:"Both are unchanged — both metrics are class-label-agnostic by construction."},
+          {key:"d", text:"Both AUROC and AUPRC are entirely unchanged — the two metrics are fully class-label-agnostic by their construction."},
         ]}
         trap={<>(a) over-symmetrises. (c) invents undefined behaviour. (d) ignores the asymmetry entirely.</>}
         lens={<>(b). AUROC flips around 0.5: a 0.95 model becomes a 0.05 model (which you then flip the predictions of to recover 0.95). AUPRC does NOT mirror cleanly — the random baseline changes from π to 1 − π, so the lift over baseline changes too. Always state which class is positive.</>}
@@ -2620,8 +2620,8 @@ flowchart TB
         title="Q20 — A medical-imaging model: π = 0.001. You quote AUPRC = 0.10. The radiology team is unimpressed. Why?"
         scenario={<><em>Discriminating insight:</em> 0.10 sounds low but it's a 100× lift over random. The team's framing is operational: precision at their working recall.</>}
         options={[
-          {key:"a", text:"AUPRC = 0.10 is genuinely poor; the model is barely better than random and the team is right to dismiss it."},
-          {key:"b", text:"AUPRC is a 100× lift over baseline π = 0.001, but radiologists don't experience the curve — they experience the operating point. Translate to precision and recall at their working threshold: e.g. &quot;at the threshold where we catch 60% of disease, 1 in 5 flagged cases is real disease.&quot;", correct:true},
+          {key:"a", text:"An AUPRC of 0.10 is genuinely poor here; the model is barely better than random ranking, so the radiology team is right to dismiss it."},
+          {key:"b", text:"A 100× lift over π=0.001, but radiologists experience the operating point, not the curve. Translate: 'at 60% disease caught, 1 in 5 flags is real disease.'", correct:true},
           {key:"c", text:"The team is biased against rare-disease ML in general; the metric is fine and the team should be educated about AUPRC interpretation."},
           {key:"d", text:"AUPRC at extreme imbalance is unreliable below π = 0.01; use F1 score instead and don't report AUPRC at all."},
         ]}
@@ -2636,8 +2636,8 @@ flowchart TB
         title="Q21 — Cost-weighted recall: when does it replace AUPRC?"
         scenario={<><em>Discriminating insight:</em> AUPRC weights all recall increments equally; reality often weights some false-positive or false-negative regions much more heavily.</>}
         options={[
-          {key:"a", text:"Never — AUPRC is mathematically optimal for any cost structure and dominates cost-weighted summaries."},
-          {key:"b", text:"When the cost of a false negative greatly exceeds a false positive (or vice versa), report expected cost over the PR curve weighted by the cost ratio; AUPRC alone hides this asymmetry.", correct:true},
+          {key:"a", text:"Never in any case — AUPRC is mathematically optimal for literally any cost structure whatsoever and it always dominates the cost-weighted summaries."},
+          {key:"b", text:"When a false negative's cost far exceeds a false positive's, report expected cost over the PR curve weighted by the cost ratio; AUPRC hides this asymmetry.", correct:true},
           {key:"c", text:"Only for regression-based churn models; AUPRC remains the gold standard for binary classification regardless of cost asymmetry."},
           {key:"d", text:"When the model is uncalibrated; well-calibrated models do not require cost-weighting because probabilities directly encode cost."},
         ]}
@@ -2651,10 +2651,10 @@ flowchart TB
         title="Q22 — Two test sets: A (π = 0.01, 10,000 samples) and B (π = 0.10, 1,000 samples). Same model. Which AUPRC is higher and why?"
         scenario={<><em>Discriminating insight:</em> AUPRC is sensitive to prevalence — but the comparison is not as simple as &quot;higher π means higher AUPRC&quot;.</>}
         options={[
-          {key:"a", text:"AUPRC on A will always be higher because the model has more samples to learn the rare class structure."},
-          {key:"b", text:"AUPRC on B will tend to be higher because its random baseline is 10× larger (0.10 vs 0.01); the ceiling at high recall is also higher. But absolute AUPRC values from datasets of different prevalence are not directly comparable.", correct:true},
-          {key:"c", text:"Equal — AUPRC is a rank-based metric and rank statistics are invariant across resampling."},
-          {key:"d", text:"AUPRC on B is exactly 10× the AUPRC on A because their prevalences differ by 10×."},
+          {key:"a", text:"AUPRC on A will always come out higher, because the model there has many more samples with which to learn the rare-class structure."},
+          {key:"b", text:"AUPRC on B tends higher: its baseline is 10× larger (0.10 vs 0.01) and the high-recall ceiling rises. But AUPRC across prevalences is not comparable.", correct:true},
+          {key:"c", text:"Equal — AUPRC is a purely rank-based metric, and rank statistics are fully invariant across any kind of class resampling."},
+          {key:"d", text:"AUPRC on B is exactly 10× the AUPRC on A, purely because the two prevalences happen to differ from each other by a factor of 10×."},
         ]}
         trap={<>(a) confuses sample size with prevalence. (c) is the AUROC behaviour. (d) invents a clean 10× scaling that doesn't hold in general.</>}
         lens={<>(b). Different prevalences shift both the random baseline AND the maximum achievable precision at each recall. Compare AUPRC only within a fixed prevalence; across prevalences, compare lift over baseline (AUPRC / π) instead.</>}
@@ -2666,9 +2666,9 @@ flowchart TB
         title="Q23 — A precision-recall curve is non-monotone (precision dips then rises with recall). What does that signal?"
         scenario={<><em>Discriminating insight:</em> PR curves are not required to be monotonic — local non-monotonicity reveals structure in the ranking.</>}
         options={[
-          {key:"a", text:"A bug in the implementation; PR curves must be monotonic decreasing by construction."},
-          {key:"b", text:"A region of the score-ranking where adding the next-scored sample pulls in a false positive faster than a true positive; common with clustered or duplicated samples near the decision region.", correct:true},
-          {key:"c", text:"A perfectly calibrated model; PR curves dip only when calibration is exact."},
+          {key:"a", text:"It is simply a bug in the implementation; PR curves are required to be monotonically decreasing by their construction."},
+          {key:"b", text:"A ranking region where the next sample pulls in a false positive faster than a true positive; common with clustered/duplicate samples near the boundary.", correct:true},
+          {key:"c", text:"It indicates a perfectly calibrated model; PR curves only ever dip locally like this when the calibration happens to be exact."},
           {key:"d", text:"The model is overfitting to the validation set; a smooth monotone curve is the sign of a well-generalised model."},
         ]}
         trap={<>(a) claims monotonicity that isn't required. (c) confuses calibration with curve shape. (d) blames overfitting incorrectly.</>}
@@ -2681,10 +2681,10 @@ flowchart TB
         title="Q24 — Threshold-free metrics: which pair would you report to a PM on a fraud-detection launch review?"
         scenario={<><em>Discriminating insight:</em> the PM wants threshold-independent confidence in the model AND a real operating-point number.</>}
         options={[
-          {key:"a", text:"AUROC and accuracy."},
+          {key:"a", text:"Just AUROC reported together with the overall classification accuracy of the model on the test set."},
           {key:"b", text:"AUPRC alongside precision-at-recall-X (where X is the business-required recall), plus the random baseline π for context.", correct:true},
           {key:"c", text:"Log-loss and Brier score — both calibration-aware summaries."},
-          {key:"d", text:"F1 score alone — it's the single most informative number for imbalanced classification."},
+          {key:"d", text:"The F1 score all by itself — it is genuinely the single most informative number available for imbalanced classification."},
         ]}
         trap={<>(a) is the default that hides false-positive volume. (c) is good for calibration but doesn't speak to the imbalance trade-off. (d) over-collapses into one number.</>}
         lens={<>(b). AUPRC for threshold-independent model selection; precision-at-recall-X for the operating point; π for grounding. This trio lets the PM reason about both model quality and deployment cost without surprise.</>}
@@ -2697,9 +2697,9 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> the difference is in the denominator of precision vs the denominators of TPR and FPR.</>}
         options={[
           {key:"a", text:"AUPRC is a noisier version of AUROC; both summarise the same underlying ranking and differ only by Monte-Carlo sampling variance."},
-          {key:"b", text:"AUROC averages TPR over FPR (both class-internal and prevalence-blind), while AUPRC averages precision over recall (precision mixes classes in its denominator and is prevalence-sensitive); use AUPRC when the cost of a false positive scales with the negative class size.", correct:true},
-          {key:"c", text:"AUROC and AUPRC are mathematically equivalent under monotone transforms of the score; the choice is purely cosmetic and should be made based on audience preference."},
-          {key:"d", text:"AUPRC dominates AUROC always; AUROC was deprecated in favour of AUPRC by the ML community after Davis &amp; Goadrich 2006."},
+          {key:"b", text:"AUROC averages TPR over FPR (class-internal, prevalence-blind); AUPRC averages precision over recall (precision mixes classes, so prevalence-sensitive). Prefer AUPRC when FP cost scales with negatives.", correct:true},
+          {key:"c", text:"AUROC and AUPRC are fully mathematically equivalent under any monotone transform of the score; the choice between them is therefore purely cosmetic, made on audience preference alone."},
+          {key:"d", text:"AUPRC always dominates AUROC in every case; AUROC was formally deprecated in favour of AUPRC by the wider ML community right after Davis &amp; Goadrich 2006."},
         ]}
         trap={<>(a) treats AUPRC as a sampling artefact. (c) is the classic &quot;same information&quot; oversimplification. (d) is historically false.</>}
         lens={<>(b). The denominator difference is the whole story. TPR and FPR each live inside one class, so prevalence cannot move them. Precision spans both classes in its denominator, so under imbalance it collapses while AUROC keeps smiling. Pick the metric whose denominator matches the operational reality of the cost structure.</>}
