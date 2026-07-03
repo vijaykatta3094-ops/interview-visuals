@@ -2286,9 +2286,9 @@ flowchart TD
         title="Why is the Ridge closed form (XᵀX + αI)⁻¹Xᵀy numerically stable when OLS fails?"
         scenario={<><em>Discriminating insight:</em> the eigenvalues of the matrix being inverted. Track what +αI does to the spectrum of XᵀX.</>}
         options={[
-          {key:"a", text:"+αI shifts every eigenvalue of XᵀX up by α, so the smallest eigenvalue is bounded away from zero and the condition number falls.", correct:true},
+          {key:"a", text:"+αI shifts every eigenvalue of XᵀX up by α, so the smallest is bounded away from zero and the condition number falls.", correct:true},
           {key:"b", text:"+αI orthogonalizes the columns of X so the resulting matrix is diagonal and trivially invertible."},
-          {key:"c", text:"+αI replaces the Moore-Penrose pseudoinverse with a true inverse only when X is square."},
+          {key:"c", text:"+αI replaces the Moore-Penrose pseudoinverse with a genuine true inverse, but only in the case when the matrix X is square."},
           {key:"d", text:"+αI subtracts the rank-deficient component of XᵀX, restoring full rank by Gaussian elimination."},
         ]}
         trap={<>(b) is false: +αI does not orthogonalize columns, it shifts eigenvalues. (c) confuses the stability story with a square-vs-rectangular distinction that does not apply. (d) describes a different (and incorrect) intervention.</>}
@@ -2511,8 +2511,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> at high α every coefficient shrinks proportionally toward zero while staying strictly nonzero, so 'small' versus 'irrelevant' is a fuzzy threshold call by the analyst.</>}
         options={[
           {key:"a", text:"L2 leaves slope coefficients untouched and shrinks only the intercept, so feature importance is invariant under α."},
-          {key:"b", text:"L2 randomizes coefficient signs at high α, destroying any interpretable ordering of the features for downstream readers."},
-          {key:"c", text:"All coefficients shrink continuously toward zero; ranking them by magnitude requires a post-hoc threshold chosen by the analyst, with no help from the model itself.", correct:true},
+          {key:"b", text:"L2 randomizes the coefficient signs at high α, which destroys any interpretable ordering of the features for downstream readers of the model."},
+          {key:"c", text:"All coefficients shrink continuously toward zero, so ranking by magnitude needs a post-hoc threshold the analyst must pick.", correct:true},
           {key:"d", text:"L2 shrinkage is non-monotonic in α, so increasing the penalty can grow a small coefficient back toward its OLS value."},
         ]}
         trap={<>(a) inverts a common implementation detail. (b) is invented. (d) is false — shrinkage is monotone per eigenvalue direction.</>}
@@ -2638,10 +2638,10 @@ flowchart TD
         title="A team adds L2 to fix overfitting. Train loss is flat or slightly higher after adding L2 while val loss is also flat. What is the most likely diagnosis?"
         scenario={<><em>Discriminating insight:</em> L2 is a variance-reduction tool. If neither train nor val moves when L2 is added, the underlying gap came from somewhere other than variance.</>}
         options={[
-          {key:"a", text:"The model is in a high-bias regime where variance is already low, so the L2 strength dominates an essentially non-existent variance — train nudges up from the added penalty and val refuses to budge. Reach for richer features or a bigger model instead.", correct:true},
-          {key:"b", text:"L2 worked perfectly — flat train and val loss is the canonical success signal and means the model is healthy."},
+          {key:"a", text:"High-bias regime: variance is already low, so L2 only adds bias — train nudges up, val stays flat. Reach for richer features or a bigger model.", correct:true},
+          {key:"b", text:"L2 worked perfectly — a flat train and val loss together is the canonical success signal and means the model is now healthy and well-regularized."},
           {key:"c", text:"α is set too high; lower it gradually until val loss starts moving in the right direction."},
-          {key:"d", text:"L2 broke the optimizer; switch over to L1 for a sparser fit and the val loss will follow train down."},
+          {key:"d", text:"L2 has broken the optimizer entirely; switch over to an L1 penalty for a sparser fit and the val loss will finally follow the train loss down."},
         ]}
         trap={<>(b) is the 'any change is good' fallacy — flat curves are not success. (c) misreads the regime: with low variance already, lowering α only restores OLS and still will not move val. (d) confuses regularizers with optimizers.</>}
         lens={<>If train ≈ val and both are high and unmoved by L2, you have a bias problem; L2 fights variance and offers nothing here. The signature 'train flat-or-up, val flat' says the penalty added a small bias cost on top of an already low-variance fit. Bigger model, richer features, or different architecture is the move.</>}
