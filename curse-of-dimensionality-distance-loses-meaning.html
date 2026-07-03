@@ -1456,8 +1456,429 @@ const App = () => (
         (Word2Vec, image features, etc.) rescue distance.
       </VIS.Callout>
       <VIS.Callout kind="info" title="Practical: project before measuring distance">
-        Use PCA / t-SNE / UMAP / learned embeddings to compress to 30-100d before running k-NN. Or use cosine similarity on already-trained embeddings — it cares about direction, not magnitude, and direction often survives the curse.
+        Use PCA / UMAP / learned embeddings to compress to 30-100d before running k-NN. Fine print: switching to cosine similarity does NOT by itself escape the curse — on unit-normalized vectors cosine and Euclidean give identical neighbor rankings (drill p10). What rescues distance on trained embeddings is their learned correlation structure (low intrinsic dimension), not the choice of metric.
       </VIS.Callout>
+    </VIS.Section>
+
+    <VIS.Section id="sec-drill" title="Test yourself — trap drills">
+      <p>
+        Twenty-four problems on what distance concentration actually says, the mechanisms behind it, and where it bites (or spares) production systems — k-NN, vector retrieval, clustering, outlier detection, density estimation. Every decoy is defensible somewhere; the brief carries the discriminating detail.
+      </p>
+
+      {/* A1 — concentration is about the RATIO, not absolute distances (warm-up) */}
+      <VIS.TrapProblem
+        id="cod-p1"
+        difficulty="medium"
+        title="What actually converges — the distances or their ratio?"
+        scenario={<>Uniform random points in the unit cube. At d=100, pairwise distances measure ≈ 4.08 ± 0.24; at d=10,000 they measure ≈ 40.8 ± 0.24. A colleague summarizes: "the curse means all distances collapse to the same small value in high dimensions." What is the precise statement?</>}
+        options={[
+          {key:"a", text:"Distances GROW like √d while their spread stays O(1) — so the max/min RATIO drives toward 1. Contrast is relative; nothing collapses to a small value.", correct:true},
+          {key:"b", text:"Distances shrink toward a common constant as dimensions are added, because each added coordinate contributes less and less to the total."},
+          {key:"c", text:"Mean and spread of distances both grow like √d, keeping the ratio constant; the curse is instead about compute cost per distance evaluation."},
+          {key:"d", text:"Only the MINIMUM distance grows with d; the maximum stays bounded, which is why the ratio approaches 1 from above."},
+        ]}
+        trap={<>"Distances collapse" (b) is the most repeated wrong summary of this concept. The numbers in the brief already refute it: 4.08 → 40.8 is 10× GROWTH. What collapses is the gap between nearest and farthest RELATIVE to their magnitude.</>}
+        lens={<>Squared distance is a sum of d independent per-coordinate terms: mean ∝ d, standard deviation ∝ √d. Taking the square root leaves a mean growing like √d with an O(1) spread — for the uniform cube, ≈ √(d/6) ± 0.24 regardless of d. Every distance-based judgment that depends on CONTRAST (who is nearest?) starves, while absolute distances happily grow.</>}
+        stretch={<>Why does the same argument predict that two random directions in high-d are nearly orthogonal?</>}
+      />
+
+      {/* A2 — Beyer theorem premise: if-then, not universal */}
+      <VIS.TrapProblem
+        id="cod-p2"
+        difficulty="hard"
+        title="Quoting Beyer et al. to kill a k-NN project"
+        scenario={<>Your team ships k-NN dedup over 256-d payment-fraud embeddings, with queries that land inside dense clusters of near-duplicate transactions. An architect cites Beyer et al. 1999: "nearest neighbor is provably meaningless above ~15 dimensions — the paper shows contrast collapsing by d=10-15. This design cannot work." The system, meanwhile, has 96% dedup precision in shadow mode.</>}
+        options={[
+          {key:"a", text:"The theorem is conditional on the relative variance of distances vanishing; clustered data with in-cluster queries violates that premise — the paper itself lists this case.", correct:true},
+          {key:"b", text:"The architect is right; the 96% shadow precision must come from evaluation leakage, since contrast mathematically cannot survive at 256 dimensions."},
+          {key:"c", text:"The theorem only applies to uniform distributions on the unit cube, and payments data is not uniform, so the paper is simply irrelevant to any production system."},
+          {key:"d", text:"The theorem applies asymptotically as d→∞, and 256 dimensions is far too small for its conclusion to have practical force."},
+        ]}
+        trap={<>(c) reaches the right verdict by a wrong, brittle route — the result is NOT restricted to uniform data (iid dimensions with finite moments is one sufficient case among many), so "not uniform ⇒ irrelevant" would get shredded in review. The load-bearing fact is the variance CONDITION, which structured data can violate.</>}
+        lens={<>Beyer et al. is an if-then: IF Var(D/E[D]) → 0 THEN contrast collapses. Near-duplicate clusters keep that variance bounded away from zero (your query's true neighbors are 100× closer than the crowd), so NN stays meaningful — the authors call out exactly this, and Durrant &amp; Kabán later formalized the converse. Senior move: check the premise on YOUR distance histogram instead of quoting the conclusion.</>}
+        stretch={<>What quick measurement on a sample of query-to-corpus distances would tell you which regime you are in?</>}
+      />
+
+      {/* A4 — three phenomena disentangled (multi) */}
+      <VIS.TrapProblem
+        id="cod-p3"
+        difficulty="hard"
+        multiSelect
+        title="Shell mass, corner mass, distance contrast — keep the stories straight"
+        scenario={<>A handful of "curse of dimensionality" claims circulate in your reading group, all attributed to "the same phenomenon." Select every statement below that is TRUE as stated.</>}
+        options={[
+          {key:"a", text:"In a high-d ball, almost all volume sits within a thin shell near the surface: the fraction within 5% of the radius of a d=100 ball is over 99%.", correct:true},
+          {key:"b", text:"The inscribed ball of the hypercube captures a vanishing volume fraction as d grows (≈0.79 at d=2, ≈0.0025 at d=10) — most of a high-d cube lives in its corners.", correct:true},
+          {key:"c", text:"A standard Gaussian in high-d concentrates its MASS near radius σ√d, not at the mode — a typical sample is far from the mean.", correct:true},
+          {key:"d", text:"These three statements are one theorem: shell concentration IS the reason max/min distance ratios approach 1."},
+          {key:"e", text:"Corner concentration implies random high-d points cluster near the cube's corners, which is why nearest-neighbor search degenerates there."},
+        ]}
+        trap={<>(d) is the conflation this problem exists to break: shell/corner/Gaussian-annulus results are statements about where VOLUME or MASS sits; distance concentration is a statement about the SPREAD of pairwise distances. They share the "sums of many coordinates" mechanism but none implies another — you can cite shell concentration all day and still not have proven anything about max/min ratios.</>}
+        lens={<>High dimension produces a family of distinct concentration effects: volume → boundary shells (1−(1−ε)^d), cube mass → corners (ball/cube ratio → 0), Gaussian mass → the σ√d annulus, pairwise distances → narrow band around √d·const. Interviews love asking one and accepting reasoning from another; knowing WHICH effect carries your argument is the senior tell. (e) misreads corner VOLUME as an attractor for points — uniform samples are spread over that volume, not clustered at vertices.</>}
+        stretch={<>Which of the three phenomena explains why "the average of two random Gaussian samples" looks nothing like a typical Gaussian sample?</>}
+      />
+
+      {/* A3 — Gaussian soap bubble / typicality */}
+      <VIS.TrapProblem
+        id="cod-p4"
+        difficulty="hard"
+        title="The VAE latent that generated garbage from the origin"
+        scenario={<>A colleague debugs a 512-d Gaussian-prior generative model: "I decode z=0 — the highest-density point of the prior — and get a blurry, atypical image. Decoding random samples works fine. The decoder must be under-trained near the mode." They propose adding training samples weighted toward the origin.</>}
+        options={[
+          {key:"a", text:"z=0 has maximal DENSITY but ~zero MASS: samples concentrate near radius √512·σ ≈ 22.6σ, so the decoder never sees origin-like inputs. Typicality, not training, is the issue.", correct:true},
+          {key:"b", text:"The colleague is right: density is proportional to how often training sees a region, so the mode is by definition the best-trained point and the artifact indicates an optimization failure."},
+          {key:"c", text:"The blurriness comes from the KL term over-regularizing the posterior toward the prior mean; lowering the KL weight will make z=0 decode sharply."},
+          {key:"d", text:"512 latent dims is over-parameterized; pruning to the ~30 KL-active dimensions concentrates prior mass near the origin, letting the mode decode sharply."},
+        ]}
+        trap={<>(b) equates density with mass — the exact intuition the soap-bubble picture kills. Sampling frequency in a REGION is density × volume, and the volume near the origin is astronomically small in 512-d; the mode is a place the prior essentially never visits.</>}
+        lens={<>The Gaussian annulus theorem: ‖z‖ concentrates at σ√d with O(σ) spread, so a "typical" prior sample lives on a thin shell — interpolations and statistics should respect the shell (this is why practitioners use spherical interpolation, slerp, in latent spaces rather than straight lines through the interior). High-d typicality: the most probable POINT is a wildly improbable KIND of point.</>}
+        stretch={<>Chords between two shell points pass through the interior. Why does linear interpolation between two good latents produce off-manifold radii, and what does slerp fix?</>}
+      />
+
+      {/* C1 — CLT mechanism */}
+      <VIS.TrapProblem
+        id="cod-p5"
+        difficulty="hard"
+        title="Name the mathematical driver of contrast collapse"
+        scenario={<>You are asked in an interview to justify, in one move, WHY the max/min distance ratio approaches 1 for iid-coordinate data — not to describe the effect, but to identify the mechanism that produces it.</>}
+        options={[
+          {key:"a", text:"Squared distance sums d independent terms: mean ∝ d, spread ∝ √d — the coefficient of variation decays like 1/√d, squeezing all pairwise distances together.", correct:true},
+          {key:"b", text:"Volume grows exponentially with d, so any finite sample leaves most of the space empty, and empty space forces distances toward equality."},
+          {key:"c", text:"In high dimensions almost all vectors are nearly orthogonal, and orthogonal vectors are all exactly the same distance apart by the Pythagorean theorem."},
+          {key:"d", text:"The unit ball's volume goes to zero as d grows, so points are forced onto the boundary sphere where all pairwise distances are equal by symmetry."},
+        ]}
+        trap={<>(b) and (c) are TRUE FACTS deployed as wrong mechanisms — empty space explains sample-complexity problems, and near-orthogonality is a consequence of the same averaging, not its cause. Interviewers use exactly this: surround the right mechanism with correct-but-irrelevant statements. (Orthogonal vectors of DIFFERENT norms are not equidistant, either.)</>}
+        lens={<>It is a law-of-large-numbers effect: D² = Σ(xᵢ−yᵢ)², d independent contributions → the <VIS.Term def="Standard deviation divided by mean — spread measured relative to size.">coefficient of variation</VIS.Term> dies like 1/√d. Everything else on this page — including near-orthogonality of random directions (cos concentrates at 0 ± 2/√d) — is the same averaging seen from another angle. If asked "when does it NOT happen," answer through the mechanism: correlated coordinates (low intrinsic dim) break the independent-sum structure.</>}
+        stretch={<>Derive the L1 vs L2 contrast difference from the same argument: why does absolute contrast scale as d^(1/k−1/2) for the L_k norm?</>}
+      />
+
+      {/* C2 — n^(-1/d): more data barely helps */}
+      <VIS.TrapProblem
+        id="cod-p6"
+        difficulty="hard"
+        title="'We'll fix nearest-neighbor quality with 10⁶× more data'"
+        scenario={<>A recommendations team's k-NN over 100-d user vectors returns weak neighbors. The data-platform lead proposes scaling the corpus from 10⁴ to 10¹⁰ users: "nearest-neighbor distance shrinks as corpus grows; a million times more data will finally give us tight neighborhoods."</>}
+        options={[
+          {key:"a", text:"NN radius scales like n^(−1/d): at d=100, a 10⁶× corpus shrinks it by 10^(6/100) ≈ 1.15 — roughly 13% tighter locality for a million-fold storage bill.", correct:true},
+          {key:"b", text:"The proposal works: NN distance halves with each doubling of data regardless of dimension; the issue is only whether the index can serve 10¹⁰ vectors."},
+          {key:"c", text:"More data makes the problem WORSE: additional points raise the expected pairwise distance, pushing the nearest neighbor farther away in high dimensions."},
+          {key:"d", text:"The proposal fails because at 10¹⁰ points, near-duplicates dominate the corpus and the nearest neighbor becomes a trivial copy of the query."},
+        ]}
+        trap={<>(b) applies the low-d intuition (in 1-d, NN spacing IS ~1/n) where its exponent has been destroyed: the 1/d in n^(−1/d) is the whole story. This is the quantitative form of "you cannot buy your way out of the curse with data."</>}
+        lens={<>Fixing local resolution ε in d dimensions costs n ~ (1/ε)^d samples — invert it and the NN radius moves like n^(−1/d). At d=100 the exponent is 0.01: data volume is nearly powerless against geometry. What DOES work: reduce effective d (learn an embedding, select features) so the exponent recovers. (c) has the sign wrong but wins arguments against naive listeners — more points can only shrink the min over a larger set.</>}
+        stretch={<>Same math, opposite direction: why does adding 10 noise features undo a 10⁶× data investment for a local method?</>}
+      />
+
+      {/* C3 — Cover & Hart asymptotic assumption */}
+      <VIS.TrapProblem
+        id="cod-p7"
+        difficulty="hard"
+        title="'1-NN is within 2× of Bayes error' — deployed at d=1000"
+        scenario={<>A design doc for a 1000-d embedding classifier reads: "By Cover &amp; Hart (1967), 1-NN achieves at most twice the <VIS.Term def="The lowest error any classifier could achieve on a task — set by inherent overlap between the classes, not by modeling skill.">Bayes error</VIS.Term> rate, so k-NN over our n=100,000 corpus is a near-optimal baseline and anything fancier must justify itself against it."</>}
+        options={[
+          {key:"a", text:"The 2× bound is asymptotic in n AT FIXED d, and the n needed grows exponentially with d — at d=1000, n=10⁵ is nowhere near the regime, so the guarantee is vacuous here.", correct:true},
+          {key:"b", text:"The citation is wrong on its face: Cover &amp; Hart proved the bound only for binary classification in one dimension, and it has never been extended."},
+          {key:"c", text:"The bound holds but is loose: modern k-NN with distance weighting achieves Bayes-optimal error exactly, so the doc actually understates the baseline."},
+          {key:"d", text:"The bound fails here because embeddings are not iid coordinates, and Cover &amp; Hart requires independence between feature dimensions."},
+        ]}
+        trap={<>(d) blames the assumption this theorem never makes (it needs essentially only a separable metric space and smoothness of the posteriors) — a classic misdirection because iid IS the operative assumption in OTHER results on this page. Know which theorem owns which fine print.</>}
+        lens={<>Cover &amp; Hart's limit runs n→∞ with the distribution (hence d) fixed: eventually your nearest neighbor is arbitrarily close, and its label is a 1-sample draw from the local posterior. "Eventually" is where the curse hides — NN radius n^(−1/d) means the local regime needs n exponential in intrinsic d. The bound is a beautiful statement about the METHOD's ceiling, silently converted by the doc into a statement about THIS dataset. Asymptotic guarantees need a "are we in the regime?" check before they justify anything.</>}
+        stretch={<>What measurable quantity (distance of NN vs distance of a random pair) tells you how close to the Cover-Hart regime you are?</>}
+      />
+
+      {/* C4 — ESL edge length / locality is a lie */}
+      <VIS.TrapProblem
+        id="cod-p8"
+        difficulty="hard"
+        title="A 'local' average over 1% of the data spans 63% of every axis"
+        scenario={<>You smooth a metric over user vectors in a 10-d feature space (features engineered, roughly uniform after scaling) by averaging the 1% of points nearest to each query — "hyper-local smoothing," per the design doc. A reviewer asks how local that neighborhood actually is.</>}
+        options={[
+          {key:"a", text:"Capturing 1% of a uniform 10-d cube needs a sub-cube of edge 0.01^(1/10) ≈ 0.63 — the 'neighborhood' spans two-thirds of every feature's range.", correct:true},
+          {key:"b", text:"One percent of points in 10-d occupies about 1% of each axis (0.01/10 per dimension), so the smoothing is genuinely local and the reviewer's concern is misplaced."},
+          {key:"c", text:"The neighborhood's size cannot be computed without knowing n; locality is a property of sample count, not of dimension."},
+          {key:"d", text:"Edge length is 0.01^10 — astronomically small — which means 1%-neighborhoods in 10-d are far MORE local than in low dimensions."},
+        ]}
+        trap={<>(b) and (d) are the two ways to botch the same exponent (divide instead of taking the d-th root, or exponentiate the wrong way). The correct r^(1/d) is counter-intuitive precisely because the root DRAGS TINY FRACTIONS TOWARD 1: 0.01^(0.1)=0.63, and even capturing 10% needs 80% of each axis.</>}
+        lens={<>Volume fraction r demands edge r^(1/d): locality and coverage fight, and in high-d coverage wins. Companion ESL fact: with 500 uniform points in the 10-d unit ball, the MEDIAN nearest-neighbor distance from the origin is ≈0.52 — over halfway to the boundary; most points are closer to the boundary than to each other. Every "local" method (k-NN, kernel smoothers, LIME's neighborhoods) inherits this: at fixed data, its neighborhoods are secretly global.</>}
+        stretch={<>What does this fact do to the interpretation of LIME explanations computed with a kernel width tuned in 100-d feature space?</>}
+      />
+
+      {/* E5/B — the index exploits contrast, it cannot mint it */}
+      <VIS.TrapProblem
+        id="cod-p9"
+        difficulty="hard"
+        title="Same HNSW index: brilliant on embeddings, useless on random vectors"
+        scenario={<>Benchmarking a vector database, you run one <VIS.Term def="Hierarchical Navigable Small World: a graph-based approximate-NN index that greedily walks toward the query through layers of neighbor links.">HNSW</VIS.Term> configuration on two 1M-vector corpora of identical dimension (1536): (i) trained text embeddings — 99% recall@10 at 0.4ms; (ii) synthetic iid Gaussian vectors — recall collapses, and reaching 90% forces search parameters so high that latency approaches a brute-force scan. Same index, same d, same n.</>}
+        options={[
+          {key:"a", text:"Graph and partition indexes navigate by distance CONTRAST — trained embeddings supply it, iid vectors offer none. An index exploits structure; it cannot create it.", correct:true},
+          {key:"b", text:"HNSW's layer hierarchy is built for cosine similarity; iid Gaussian vectors require Euclidean, and that metric mismatch — not the data — causes the collapse."},
+          {key:"c", text:"The synthetic vectors are unnormalized; scaling them to unit norm restores the small-world navigability the greedy walk depends on."},
+          {key:"d", text:"The synthetic corpus lacks near-duplicate pairs, and HNSW's base-layer shortcuts rely on near-duplicates to terminate the greedy search early."},
+        ]}
+        trap={<>(b) and (c) blame the metric or the norm — but on iid vectors the collapse persists under ANY metric (cosine of iid Gaussians concentrates at 0 exactly as Euclidean distances concentrate around their mean; p10 is the same fact). The failure is in the data's geometry, not the configuration.</>}
+        lens={<>A greedy graph walk needs a gradient to follow: each hop must be measurably closer to the query than the last, and partition indexes (IVF) need clusters that actually separate. Concentration erases both signals, which is why ANN-benchmark hardness tracks the LOCAL INTRINSIC DIMENSIONALITY of the dataset, and why structureless vectors are the documented worst case, decaying toward linear scan. Corollary for design docs: quoting an index's recall/latency from one dataset transfers ONLY if your data's contrast profile matches — the index is a lens for structure that must already be there.</>}
+        stretch={<>Your retrieval quality drops after concatenating three independently-trained embeddings into one 4608-d vector. Which signal that the greedy walk needs did the concatenation dilute?</>}
+      />
+
+      {/* B2 — cosine escape hatch (sounds reasonable, isn't) */}
+      <VIS.TrapProblem
+        id="cod-p10"
+        difficulty="hard"
+        title="'Switch to cosine — it escapes the curse'"
+        scenario={<>Postmortem for a degraded 800-d k-NN feature-matching service (features are z-scored aggregates, not trained embeddings). An engineer proposes: "Euclidean concentrates in high-d; cosine only measures ANGLE, so normalizing to the unit sphere and using cosine restores contrast." The team is ready to ship the one-line change.</>}
+        options={[
+          {key:"a", text:"On unit vectors ‖u−v‖² = 2 − 2cos(u,v): monotonically equivalent metrics, IDENTICAL neighbor rankings — and angles concentrate near 90° just as distances concentrate.", correct:true},
+          {key:"b", text:"The proposal is sound: concentration results are proved for norms, and cosine is not a norm, so the theorems simply do not apply to angular similarity."},
+          {key:"c", text:"Cosine helps, but for a different reason — it removes the √d growth of distances, and it is that growth (not the spread) that breaks k-NN."},
+          {key:"d", text:"The swap fails only because the features must be mean-centered first: cosine on uncentered data measures alignment with the shared global mean rather than pairwise similarity."},
+        ]}
+        trap={<>(b) is lawyer-brained: the identity ‖u−v‖² = 2−2cos on the sphere makes cosine inherit every concentration property of Euclidean distance THERE, theorem-name or not. Random high-d directions have cos ≈ 0 ± O(1/√d) — the angular version of the same collapsing band.</>}
+        lens={<>Normalization is a projection onto the sphere, and on the sphere the two metrics are one metric. When cosine "works better" in practice it is because (a) length was genuine noise for that data (document length in bag-of-words), or (b) the vectors are trained embeddings whose direction carries the structure — both are statements about the DATA, not an escape from geometry. Metric swaps with real contrast effects exist (L2 → L1 → fractional, per Aggarwal et al.), but cosine-vs-Euclidean-on-the-sphere is not among them.</>}
+        stretch={<>Bag-of-words retrieval genuinely improves moving from Euclidean to cosine. Which specific nuisance direction does the normalization remove?</>}
+      />
+
+      {/* B2b — dimension count vs contrast: two 50-d spaces, opposite outcomes */}
+      <VIS.TrapProblem
+        id="cod-p11"
+        difficulty="hard"
+        title="Two 50-dim reductions, same k-NN, opposite outcomes — 'but dimension is dimension'"
+        scenario={<>A churn model's 2,000 features defeat k-NN, so two reductions to EXACTLY 50 dims are tested. (i) PCA-50 (95% variance kept — dominated by seasonal volume swings shared across accounts): the histogram of query→same-label-neighbor distances still lies almost on top of the query→random histogram, and recall@20 barely moves. (ii) Fifty features picked on the train fold by label relevance: the two histograms visibly separate and recall@20 jumps. A reviewer objects: "both spaces are 50-dimensional — the curse cares about d, so these should behave the same."</>}
+        options={[
+          {key:"a", text:"Concentration counts NOISE coordinates, not d: PCA-50 kept high-variance nuisance, so distances still concentrate at the nuisance scale; relevant dims reopen the gap.", correct:true},
+          {key:"b", text:"The two spaces differ only by a rotation plus a discard, and Euclidean k-NN is rotation-invariant — any real difference must come from tuning k, not from the reduction."},
+          {key:"c", text:"Fifty PCA dims still carry the seasonal component, but shared seasonality only shifts all distances by a common offset, which cancels when comparing candidates for the same query."},
+          {key:"d", text:"Both spaces fix the curse equally at d=50; the histogram separation in (ii) is label leakage from the supervised selection contaminating the evaluation."},
+        ]}
+        trap={<>(d) weaponizes leakage-paranoia — healthy skepticism aimed at the wrong target (selection on the TRAIN fold, evaluated on held-out queries, is clean). (b) misuses a true fact: rotation-invariance says rankings survive a rotation of the SAME space, not that all 50-d subspaces are equivalent.</>}
+        lens={<>The operative quantity in the concentration theorem is the RELATIVE VARIANCE of distances, and it does not count dimensions — it weighs signal against noise coordinates. A nuisance-dominated 50-d space keeps the ratio near zero (every distance ≈ the seasonal scale ± 1/√50 wiggle); a relevant 50-d space restores it. The neighbor-vs-random distance histogram pair IS the direct instrument for this — cheap to compute, and the right artifact to attach when a design review asks "did the reduction fix the curse?" Dimension count is the headline; contrast is the mechanism.</>}
+        stretch={<>Seasonality is a shared additive component. Why does (c)'s "common offset cancels" argument fail for Euclidean distances between DIFFERENT candidate pairs?</>}
+      />
+
+      {/* B4 — metric choice: Lk contrast (multi) */}
+      <VIS.TrapProblem
+        id="cod-p12"
+        difficulty="hard"
+        multiSelect
+        title="Choosing the norm for a high-d similarity search — select all true claims"
+        scenario={<>You are picking the distance for similarity search over ~300 numeric engineered features (not trained embeddings, mixed signal quality). The team debates L1 vs L2 vs L∞ vs fractional Minkowski p=0.5. Select every claim that is TRUE.</>}
+        options={[
+          {key:"a", text:"Relative contrast degrades in the order L1 better than L2 better than L∞ — for L_k, absolute contrast scales like d^(1/k−1/2), so lower k preserves more (Aggarwal et al. 2001).", correct:true},
+          {key:"b", text:"Fractional p below 1 can preserve contrast further but violates the triangle inequality — metric-tree pruning bounds no longer hold (sklearn forces brute force for p under 1).", correct:true},
+          {key:"c", text:"The fractional-norm gains are data-dependent, not a universal cure — follow-up work (François et al. 2007) shows datasets where they do not materialize.", correct:true},
+          {key:"d", text:"L∞ is the safest default in high-d because taking a max is scale-free across dimensions, robust to any single outlier coordinate, and immune to concentration effects."},
+          {key:"e", text:"The norm choice is cosmetic: all Minkowski metrics are topologically equivalent, so they produce the same nearest-neighbor rankings on any dataset."},
+        ]}
+        trap={<>(e) launders a true math fact (norm equivalence in finite dimension — same TOPOLOGY) into a false retrieval claim (same RANKINGS). Equivalence bounds distances within constants; rankings live inside those constants. (d) is backwards — L∞'s contrast is the one that decays fastest, since the max of d terms concentrates hard.</>}
+        lens={<>Contrast is a resource that the norm's exponent taxes: L_k contrast ~ d^(1/k−1/2) puts L2 exactly at the constant-contrast knife edge, L1 growing like √d, L∞ collapsing. But engineering closes the loop: p&lt;1 buys contrast and sells away indexability (no triangle inequality → no pruning bounds), and the gains are dataset-contingent. On mixed-quality features, feature SELECTION usually buys more contrast than any exponent change — removing noise terms attacks the mechanism (the d in the exponent) rather than the tax rate.</>}
+        stretch={<>Datar et al.'s p-stable LSH is defined for p in (0, 2] — fractional p included. Why does hashing survive where kd/ball-tree pruning breaks?</>}
+      />
+
+      {/* B1b — intrinsic dim: MNIST */}
+      <VIS.TrapProblem
+        id="cod-p13"
+        difficulty="hard"
+        title="k-NN on raw 784-d MNIST pixels gets 95% accuracy — explain or panic"
+        scenario={<>A candidate you are interviewing states the curse confidently, then you show them LeCun's benchmark table: k-NN (k=3) on RAW 784-dimensional MNIST pixels sits at 5.0% error — 2.4% with deskewing — no embedding, no PCA, Euclidean on pixels. Reconcile, precisely.</>}
+        options={[
+          {key:"a", text:"Ambient d is 784 but MNIST's INTRINSIC dimension is ~13 — digits live on a thin manifold, and same-class images are genuinely far closer than cross-class ones.", correct:true},
+          {key:"b", text:"MNIST is small enough (n=60,000) that brute-force search examines every point, and exhaustive search is immune to distance concentration."},
+          {key:"c", text:"Pixel values are bounded in [0,255], and concentration theorems require unbounded coordinates, so image data is exempt from the curse."},
+          {key:"d", text:"This is survivorship: 95% is actually the DEGRADED number the curse predicts — a low-d method on structured data would reach 99.9%."},
+        ]}
+        trap={<>(b) confuses finding the true nearest neighbor with that neighbor being USEFUL. Brute force always finds the argmin; the curse's claim is that on structureless high-d data the argmin is barely nearer than a random point. Exhaustiveness cannot repair contrast — only data structure can.</>}
+        lens={<>Measured <VIS.Term def="The number of effective degrees of freedom the data actually varies along — the dimension of the thin surface it occupies, regardless of how many raw coordinates describe it.">intrinsic dimensions</VIS.Term>: MNIST ≈13 (ambient 784), CIFAR-10 ≈26 (3072), ImageNet ≈43 (150,528) — real data is astonishingly thin in its ambient space. That thinness IS why k-NN, kernels, and learned embeddings work at all. The complete senior answer connects the chain: concentration needs high EFFECTIVE dimension → real data has low intrinsic dimension → local methods live or die by the data's structure, not the vector length. The curse is a statement about worst-case geometry; your dataset may simply decline to be worst-case.</>}
+        stretch={<>Two estimators of intrinsic dimension (MLE, TwoNN) exist. Sketch how the TwoNN idea gets dimension from just ratios of first and second neighbor distances.</>}
+      />
+
+      {/* D1 — adding features can't hurt */}
+      <VIS.TrapProblem
+        id="cod-p14"
+        difficulty="hard"
+        title="Twenty helpful-ish features later, the k-NN model is worse"
+        scenario={<>A fraud k-NN model on 40 curated features (recall@50 = 0.71) gets "enriched" with 20 weakly-informative device fingerprint stats. Offline recall drops to 0.58. The feature owner protests: "each new feature has positive <VIS.Term def="An information-theoretic measure of dependence between two variables; zero only when they are independent.">mutual information</VIS.Term> with the label — adding weak signal cannot make a model worse; worst case it adds nothing."</>}
+        options={[
+          {key:"a", text:"Each weak feature adds O(1) variance to every distance and almost no separation, so true neighbors get outvoted — information monotonicity holds for the Bayes rule, not k-NN at fixed n.", correct:true},
+          {key:"b", text:"The drop must be an evaluation artifact: information theory guarantees more features cannot reduce achievable recall, so the offline harness has a bug."},
+          {key:"c", text:"The 20 features are fine but unscaled; z-scoring them will restore recall to 0.71 or better, since scale is the only way a weak feature can hurt."},
+          {key:"d", text:"k-NN is fine; the recall drop comes from the higher-dimensional index (more features = deeper trees = more approximate search errors)."},
+        ]}
+        trap={<>(b) is the information-theory security blanket: TRUE for the Bayes rule with unlimited data, silently false for finite-sample local methods. Trunk (1979) built the canonical demonstration — with estimated parameters, accuracy PEAKS and then declines as features are added (the peaking/Hughes phenomenon), even when every feature carries signal.</>}
+        lens={<>The distance between a query and its true neighbor gains Σ(noise gaps) from the new coordinates; the distance to a random point gains the same in expectation. The GAP between them — the thing k-NN runs on — gains nothing but variance. Scaling (c) mitigates only magnitude imbalance, not the variance dilution itself. ESL's ch.13 experiment (1-NN error climbing as noise features are appended) is this problem in chart form. Governance rule it implies: distance-based consumers need feature admission GATES (does it improve the margin?), not feature buffets.</>}
+        stretch={<>Trunk's 1979 construction has EVERY feature carrying signal, yet accuracy still peaks and then declines as features are added. What grows faster than the added signal?</>}
+      />
+
+      {/* D2 — cascade: what actually dies in high-d (multi) */}
+      <VIS.TrapProblem
+        id="cod-p15"
+        difficulty="hard"
+        multiSelect
+        title="'High-d kills distance methods' — which conclusions actually follow?"
+        scenario={<>After a curse-of-dimensionality reading group, a tech lead drafts guidance for the 400-feature risk platform: "Since distances are meaningless here, we must (1) drop the k-NN dedup stage, (2) stop using DBSCAN for incident clustering, (3) replace GBDT with a neural net since trees split on distances too, (4) stop trusting LOF outlier scores, (5) abandon the linear-SVM baseline since margins are distances." Select every item whose reasoning is CORRECT for iid-ish, mostly-uninformative 400-d features.</>}
+        options={[
+          {key:"a", text:"(2) DBSCAN: the concern is well-founded — radius-based neighborhood formation inherits the concentration pathology directly.", correct:true},
+          {key:"b", text:"(4) LOF: the concern is well-founded — density-ratio scores flatten when the distances beneath them concentrate.", correct:true},
+          {key:"c", text:"(3) GBDT: correct to worry — each split compares feature values to thresholds, which is a 1-d distance computation, so trees degrade the same way k-NN does."},
+          {key:"d", text:"(5) linear SVM: correct to worry — the margin is a Euclidean distance, so margin-based classifiers lose meaning exactly when pairwise distances do."},
+          {key:"e", text:"(1) k-NN dedup: worry only if queries do NOT land in tight duplicate clusters — dup-heavy workloads violate concentration's premise and can survive.", correct:true},
+        ]}
+        trap={<>(c) and (d) pattern-match "involves a distance" onto "dies with the curse." Trees compare ONE coordinate at a time — axis-aligned splits pick informative features and simply never route through noise dims (weak features get ~zero split gain). An SVM margin is a distance TO A LEARNED HYPERPLANE — a supervised, global object that regularization keeps meaningful; it is not a pairwise distance between random points.</>}
+        lens={<>The curse's kill zone is specific: UNLEARNED, ISOTROPIC, PAIRWISE distances used LOCALLY (k-NN, radius queries, density ratios, kernel bandwidths). Methods survive by (i) learning the geometry (SVM margins, metric learning, embeddings), (ii) selecting coordinates (trees/GBDT), or (iii) operating on structured data that violates the concentration premise (dedup clusters). Auditing which mechanism each pipeline stage relies on — rather than keyword-matching "distance" — is the senior version of this reading group.</>}
+        stretch={<>Kernel SVMs with RBF kernels DO have a curse exposure. Where does it enter — the margin, or somewhere else?</>}
+      />
+
+      {/* D3 — silhouette ≈ 0: junior vs senior read */}
+      <VIS.TrapProblem
+        id="cod-p16"
+        difficulty="hard"
+        title="Silhouette says 0.03 — the junior deletes the clustering roadmap"
+        scenario={<>A junior analyst k-means-clusters 900-d transformer embeddings of support tickets into 40 clusters. <VIS.Term def="A clustering-quality score comparing each point's average distance to its own cluster vs the nearest other cluster. Ranges -1 to 1; higher = better separated.">Silhouette score</VIS.Term>: 0.03. Their conclusion in the sprint review: "essentially zero — the embeddings contain no cluster structure; the auto-triage project should be descoped." Spot-checks, meanwhile, show tickets within several clusters sharing obvious themes.</>}
+        options={[
+          {key:"a", text:"Silhouette compares raw distances, which concentrate at 900-d: a(i) ≈ b(i) drives scores toward 0 even when structure exists. Validate with label-anchored checks instead.", correct:true},
+          {key:"b", text:"Silhouette is distribution-free and dimension-independent by construction; 0.03 is decisive evidence of no structure, and the spot-checks are confirmation bias."},
+          {key:"c", text:"The 0.03 reflects using k-means with k=40; silhouette is only valid for density-based clusterings, so rerunning with DBSCAN will produce the honest number."},
+          {key:"d", text:"Embeddings must be L2-normalized before k-means; without normalization silhouette is computed on meaningless magnitudes and always lands near zero."},
+        ]}
+        trap={<>(b)'s "dimension-independent by construction" is exactly what fails: the FORMULA is dimension-agnostic, but its INPUTS (raw pairwise distances) are the thing high dimension degrades. A metric built on a rotting substrate rots with it, however elegant its normalization.</>}
+        lens={<>The senior read separates "the data has no structure" from "this instrument cannot see structure here." Distance-ratio diagnostics (silhouette, Davies-Bouldin, eps elbows, LOF) all inherit concentration; meaningful evaluation in high-d anchors on something external — labels, human spot-checks, downstream task lift — or measures after projecting to a space where distances have contrast. Killing a roadmap on an uncalibrated instrument is the junior tell; asking "what does this metric's failure mode look like at d=900?" is the senior one.</>}
+        stretch={<>Design the 30-minute experiment that decides between "no structure" and "silhouette blind": what do you compute, on what split, with what conclusion table?</>}
+      />
+
+      {/* E3 — sklearn auto→brute above 15 features */}
+      <VIS.TrapProblem
+        id="cod-p17"
+        difficulty="hard"
+        title="Three days tuning leaf_size on a tree that was never built"
+        scenario={<>An engineer benchmarks <code>KNeighborsClassifier(algorithm="auto")</code> on 768-d embeddings, then spends three days grid-searching <code>leaf_size</code> and reading kd-tree papers to squeeze out latency — with query time not moving at all. They conclude sklearn's tree implementations are broken and start writing a custom kd-tree.</>}
+        options={[
+          {key:"a", text:"algorithm='auto' silently selects BRUTE above ~15 features — no tree exists, so leaf_size is a dead parameter. At 768-d, brute with BLAS is the sane default the docs recommend.", correct:true},
+          {key:"b", text:"leaf_size only affects memory, never latency, which is why the sweep was flat; the fix is tuning the tree depth parameter instead."},
+          {key:"c", text:"The flat sweep means the dataset fits in cache; tree parameters only matter once data exceeds RAM, so the engineer should benchmark on the full corpus."},
+          {key:"d", text:"sklearn trees are exact while brute force is approximate; the engineer should force algorithm='kd_tree' to trade latency for correctness."},
+        ]}
+        trap={<>(d) inverts the facts twice — brute IS exact (it computes every distance), and forcing kd_tree at 768-d would make latency dramatically WORSE: the tree's pruning bounds are useless when all points are nearly equidistant, so it degenerates to a slower, pointer-chasing linear scan.</>}
+        lens={<>Space-partitioning indexes are distance-CONTRAST machines: kd/ball trees prune a branch when its bounding region is provably farther than the current best — and concentration destroys "provably farther." sklearn encodes the curse as a heuristic (auto → brute when n_features &gt; 15). The production-shaped lesson: at embedding dims your real options are exact-brute (BLAS gemm trick) or approximate structure-exploiting indexes (HNSW/IVF-PQ) — the classical trees are the one tool the geometry has already vetoed. Also: a silent fallback consumed three engineer-days; read the 'auto' resolution rules of your libraries.</>}
+        stretch={<>Why do HNSW's graph walks keep working at 768-d on trained embeddings where kd-tree pruning fails?</>}
+      />
+
+      {/* E2 — one-hot ties: nondeterministic neighbors (Friday page) */}
+      <VIS.TrapProblem
+        id="cod-p18"
+        difficulty="hard"
+        title="Friday 3am: the dedup service returns different duplicates on every rerun"
+        scenario={<>A catalog-dedup k-NN runs Euclidean distance over 40 one-hot categorical fields (brand, category, size, color, …). After an upstream job started shuffling row order, reruns of the SAME batch return different "nearest duplicates" for thousands of items — same distances, different neighbors. On-call finds squared distances taking only the values 0, 2, 4, …, 80.</>}
+        options={[
+          {key:"a", text:"Squared distance is 2×(differing fields) — 41 possible values, and the binomial pileup drops most pairs onto the same plateaus. Thousands tie; scan order decides.", correct:true},
+          {key:"b", text:"The shuffle broke the index build: kd-trees are order-sensitive, and rebuilding the tree on sorted input will restore stable neighbors."},
+          {key:"c", text:"Float accumulation over 40 sparse fields is numerically unstable across orderings; switching the distance accumulation to float64 makes reruns deterministic."},
+          {key:"d", text:"One-hot vectors must be L2-normalized; without normalization high-cardinality fields dominate the metric and neighbors become arbitrary."},
+        ]}
+        trap={<>(c) is the on-call favorite — blame floats. But the observed distances are exact even integers (0, 2, 4, …): sums of forty 0/2 terms are exactly representable, and no precision change removes TIES that are mathematically exact. The pathology is the metric's tiny value range, not arithmetic.</>}
+        lens={<>This is distance concentration in its bluntest, DISCRETE form. With m categorical fields, (differing-field count) behaves like a Binomial(m) draw: the mean grows like m while the spread grows like √m, so as tables get wider an ever-larger share of candidate pairs lands on the same few middle plateaus — the exact analogue of the continuous narrow band, plus exact ties. The width of the table is load-bearing: at m=6 the plateaus are sparse and rankings survive; at m=40 the top-k race is decided INSIDE one plateau, where the metric offers zero discrimination and scan order rules. Fixes follow: a stable tie-breaking key for determinism, and real contrast from richer similarity — frequency-weighted fields, learned entity embeddings, string similarity on names.</>}
+        stretch={<>Bag-of-words L2 has a related pathology — which nuisance quantity dominates it, and which two standard tricks fix that one?</>}
+      />
+
+      {/* E6/eval — DBSCAN eps cliff */}
+      <VIS.TrapProblem
+        id="cod-p19"
+        difficulty="hard"
+        title="DBSCAN's eps knob has become a cliff"
+        scenario={<>Incident-clustering on 256-d log embeddings. The runbook says "pick <VIS.Term def="DBSCAN's neighborhood radius: two points closer than eps can join the same cluster.">eps</VIS.Term> at the <VIS.Term def="A diagnostic plot of every point's distance to its k-th nearest neighbor, sorted. A visible elbow suggests a natural neighborhood radius.">k-distance elbow</VIS.Term>." The new k-distance plot is nearly FLAT — no elbow — and the eps grid search shows: eps=4.10 → 96% of points labeled noise; eps=4.35 → one cluster containing 99% of points. Nothing between produces usable output.</>}
+        options={[
+          {key:"a", text:"Distances sit in a narrow band, so every radius is a cliff: just below it almost nobody connects, just above it everybody does. The elbow method presumes spread that is gone.", correct:true},
+          {key:"b", text:"The flat k-distance plot means the data has uniform density, which is DBSCAN's ideal case; the grid is simply too coarse and finer steps between 4.10 and 4.35 will reveal the good eps."},
+          {key:"c", text:"min_samples is set too low; raising it reshapes the k-distance curve and restores a visible elbow at any dimensionality."},
+          {key:"d", text:"DBSCAN requires metric='cosine' for embeddings; the cliff is an artifact of running a Euclidean eps on directional data."},
+        ]}
+        trap={<>(b) misreads the instrument: a flat k-distance curve here reflects CONCENTRATION (all k-NN radii nearly equal), not benign uniform density — and the cliff is between-band vs in-band connectivity, which no grid granularity smooths. You cannot binary-search your way onto a step function's missing middle.</>}
+        lens={<>Radius-threshold methods (DBSCAN eps, radius queries, distance-cutoff dedup) all inherit the same failure: the quantity they threshold now lives in a band of width O(1/√d) relative to its mean, so thresholds are either "nobody" or "everybody." Escapes change the substrate, not the knob: reduce dimension first (UMAP → HDBSCAN is the standard incident-clustering stack), use density-RATIO methods less tied to absolute radii, or cluster on a learned lower-d representation. When a runbook's calibration step stops producing a signal, the method — not the operator — has aged out of the regime.</>}
+        stretch={<>Why does HDBSCAN (which sweeps over density levels instead of fixing one eps) still benefit from the UMAP step in that stack?</>}
+      />
+
+      {/* F3 — hubness */}
+      <VIS.TrapProblem
+        id="cod-p20"
+        difficulty="hard"
+        title="Forty songs are the 'nearest neighbor' of half the catalog"
+        scenario={<>A music-similarity service (k-NN over 400-d audio embeddings) draws complaints that recommendations "keep converging on the same tracks." Analysis: the <VIS.Term def="For each item x, the number of other items that include x in their own top-k neighbor list. Skew in this distribution is the hubness signature.">k-occurrence</VIS.Term> distribution (how many items list track x in their top-10) is wildly right-skewed — about 40 tracks appear in the top-10 lists of ~48% of the catalog, while a third of tracks appear in none. The embedding was trained normally; retrieval is exact.</>}
+        options={[
+          {key:"a", text:"This is HUBNESS: points near the data centroid become disproportionately close to everything as intrinsic dimension rises. Named corrections exist — local scaling, mutual proximity, CSLS.", correct:true},
+          {key:"b", text:"The 40 tracks are simply the most popular training songs; the embedding overfit to play counts, and removing popularity features from training will equalize k-occurrence."},
+          {key:"c", text:"Exact retrieval rules out geometry as the cause; skewed neighbor counts can only arise from an index bug or duplicated vectors in the corpus."},
+          {key:"d", text:"This is expected behavior: by symmetry, every item appears in roughly k others' top-k lists, and deviations from that just reflect genuine similarity structure."},
+        ]}
+        trap={<>(d) states the low-dimensional intuition — mean k-occurrence IS k, so "roughly k each" feels right — but in high intrinsic dimension the DISTRIBUTION around that mean skews violently: hubs near the centroid soak up appearances while antihubs vanish. The mean survives; the fairness does not.</>}
+        lens={<>Hubness (Radovanović et al. 2010) is the asymmetry the max/min-ratio story hides: concentration squeezes distances, and points slightly nearer the global centroid end up marginally nearer to EVERYONE — marginal advantages that k-NN turns into winner-take-all neighbor lists. It is measurable (skewness of N_k), it concentrates label errors ("bad hubs"), and it recurs across domains — word-embedding retrieval adopted CSLS (in MUSE) specifically to fight it. If your neighbor graph has celebrities, suspect the geometry before the content.</>}
+        stretch={<>CSLS penalizes candidates by their average similarity to their own neighborhood. Explain in one sentence why that specifically demotes hubs.</>}
+      />
+
+      {/* F1 — LOF masking */}
+      <VIS.TrapProblem
+        id="cod-p21"
+        difficulty="hard"
+        title="The outlier detector that stopped detecting when the table got wider"
+        scenario={<>An anomaly pipeline uses <VIS.Term def="Local Outlier Factor: scores each point by the ratio of its neighbors' local density to its own. Scores near 1 = normal; well above 1 = outlier.">LOF</VIS.Term> on 25 curated transaction features and reliably surfaces mule-account patterns (scores 1.8-3.5 for known anomalies vs ≈1.0 for normal). A platform refresh joins in 300 additional low-signal profile attributes. Post-refresh, known anomalies score 1.02-1.08 — indistinguishable from normal — though every original feature is still present.</>}
+        options={[
+          {key:"a", text:"LOF scores are density RATIOS: 300 noise dims push all distances into a narrow band, every local density matches, and ratios collapse to ≈1 for anomalies and normals alike.", correct:true},
+          {key:"b", text:"The new attributes changed the feature scaling; re-fitting the StandardScaler over all 325 columns will restore the original score separation."},
+          {key:"c", text:"LOF's k parameter must grow with dimension; setting k ≈ √d ≈ 18 restores density contrast at 325 features."},
+          {key:"d", text:"The anomalies genuinely became normal: with 300 more attributes describing each account, apparent outliers were explained away — the detector is now more accurate, not less."},
+        ]}
+        trap={<>(d) is the philosophically seductive one — "more context = fewer false alarms" is a real phenomenon elsewhere. But irrelevant attributes do not EXPLAIN anomalies, they DILUTE them: the mule pattern still lives in the original 25 coordinates; it is the metric aggregating 300 noise terms that can no longer see it. Score compression toward 1.0 across the board is the instrument's failure signature, not new truth.</>}
+        lens={<>Density-ratio detectors are double-exposed to concentration: distances feed reachability densities, densities feed ratios — noise dims flatten stage one, and stage two amplifies the flatness into universal ≈1 scores. Defenses are structural: subspace/feature-bagged outlier ensembles, detection on curated or learned low-d representations, and feature-admission gates for the anomaly pipeline (weak features are not harmless here; they are anesthetic). "Outliers are usually outliers in a FEW dimensions" is the design principle the wide table violated.</>}
+        stretch={<>Feature bagging runs LOF on random feature subsets and aggregates. Why does that recover sensitivity that the full-space run lost?</>}
+      />
+
+      {/* F4 — KDE / empty space, Silverman numbers */}
+      <VIS.TrapProblem
+        id="cod-p22"
+        difficulty="hard"
+        title="Density estimation is the first casualty — by how much?"
+        scenario={<>A risk team wants a nonparametric density model (<VIS.Term def="Kernel density estimation: estimating a probability density by placing a small smooth bump on every data point and summing them.">KDE</VIS.Term>) over transaction features to flag low-density events, replacing a validated 1-d amount-density rule with a richer version on 10 features. They budget "maybe 10× the data of the 1-d version, to be safe." Silverman's classic table gives samples needed for ~10% relative MSE at the mode of a standard Gaussian: d=1 → 4; d=5 → 768; d=7 → 10,700.</>}
+        options={[
+          {key:"a", text:"Continue the table: d=10 lands near 842,000 samples — about 200,000× the 1-d cost, not 10×. The honest options are structured density models or fewer dimensions.", correct:true},
+          {key:"b", text:"Ten features needs on the order of 10× the 1-d sample size — the requirement scales linearly with dimension because each marginal must be estimated to the same accuracy."},
+          {key:"c", text:"KDE's requirement is governed by n·h^d staying constant, so choosing a wider bandwidth h at d=10 restores 1-d accuracy from the same n."},
+          {key:"d", text:"The table overstates the problem: with a Gaussian kernel matched to Gaussian data, KDE is exact at any d, and the sample requirement reflects only kernel mismatch."},
+        ]}
+        trap={<>(c) is the practitioner's escape hatch that trades one error for another: widening h does control VARIANCE (more points per window), but the bias grows with h² and the estimate smears toward uselessness — the best achievable bias-variance balance is exactly what the optimal rate n^(−4/(4+d)) already accounts for. There is no bandwidth that repeals the exponent.</>}
+        lens={<>The empty-space phenomenon in numbers: resolving [0,1]^d at 10 bins per axis needs 10^d cells, and KDE's optimal MSE rate for smooth densities, n^(−4/(4+d)) (only n^(−2/(2+d)) if mere Lipschitz smoothness holds), means fixed accuracy costs n growing exponentially in d either way. Density estimation degrades BEFORE classification (a classifier only needs the decision boundary region right; a density model must be right everywhere) — which is why "flag low-density events" plans should reach for structured density models or low-d projections long before d=10. When a design doc extrapolates a 1-d success to 10-d "with a safety factor," the safety factor needed is exponential.</>}
+        stretch={<>Why can a normalizing flow fit a usable 10-d density from far fewer samples than KDE — what is it trading away?</>}
+      />
+
+      {/* E5/F5 — ANN benchmark: recall@k vs meaningfulness */}
+      <VIS.TrapProblem
+        id="cod-p23"
+        difficulty="hard"
+        title="99% recall@10 on the vector DB — and garbage retrievals in production"
+        scenario={<>A platform team validates a new vector index: 99.2% <VIS.Term def="Of the true 10 nearest neighbors (by exhaustive search), the fraction the index actually returns. An index-fidelity metric.">recall@10</VIS.Term> against exact-NN ground truth on their 1024-d feature vectors (aggregated user stats, not trained embeddings). It ships. Product quality reviews then find retrieved "similar users" are barely better than random pairings. The index dashboard still shows 99% recall. Both numbers are real.</>}
+        options={[
+          {key:"a", text:"Recall@10 assumes exact-NN is the right answer. On unstructured high-d features the exact neighbor is barely nearer than random — the index faithfully reproduces a meaningless ranking.", correct:true},
+          {key:"b", text:"99% recall with bad retrievals means the ground-truth job computed neighbors with a different distance function than the index serves; aligning the metrics will fix product quality."},
+          {key:"c", text:"The index's approximation errors concentrate on the hardest queries, which are exactly the queries users care about; raising recall to 99.9% will close the quality gap."},
+          {key:"d", text:"1024 dimensions exceeds what IVF-style indexes support accurately; re-sharding into four 256-d sub-indexes and merging results will restore semantic quality."},
+        ]}
+        trap={<>(b) is the debugging reflex with a real failure mode behind it (metric mismatch does happen) — but it cannot coexist with 99% MEASURED recall against the served index's own ground truth pipeline unless someone measured nothing. The scenario's trap is that both numbers are correct: the system is a high-fidelity copy of a signal-free ranking.</>}
+        lens={<>ANN evaluation has two stacked questions: does the index approximate exact-NN (recall@k answers this), and does exact-NN mean anything on this data (nothing in the serving stack answers this). Trained embeddings usually make question two a yes — their structure is WHY HNSW/IVF work — but raw aggregate features at 1024-d often do not. The missing gate is a contrast check upstream (distance histograms: query-to-labeled-similar vs query-to-random) or a task-anchored eval (do retrieved neighbors share labels?). "The retrieval is only as meaningful as the geometry it retrieves from" belongs in every vector-DB design review.</>}
+        stretch={<>Once contrast is below 1+ε, EVERY point is a valid (1+ε)-approximate nearest neighbor. What does that do to papers benchmarking approximate-NN speed at fixed ε on synthetic uniform data?</>}
+      />
+
+      {/* E4/policy — design the admission gate itself */}
+      <VIS.TrapProblem
+        id="cod-p24"
+        difficulty="hard"
+        title="Write the feature-admission policy that protects every consumer"
+        scenario={<>Post-incident review: 500 weak profile features were added to the shared table; the GBDT shrugged, the k-NN "similar known-fraud" rule collapsed (p15/p14 territory). Leadership now wants ONE onboarding policy for the shared feature table, and four proposals are on the whiteboard. The table feeds GBDTs, an L1-regularized linear model, and three distance-based consumers (k-NN rules, radius dedup, LOF).</>}
+        options={[
+          {key:"a", text:"Key the bar to the consumer's mechanism: selecting models onboard freely; distance consumers get a contrast gate — the neighbor-vs-random gap must not shrink.", correct:true},
+          {key:"b", text:"One universal bar: admit any feature whose mutual information with the label clears a fixed threshold, since information content is consumer-independent by definition."},
+          {key:"c", text:"One universal bar: admit features that improve the GBDT's validation AUC — use the strongest, best-instrumented consumer as the canary for all of them."},
+          {key:"d", text:"Freeze the table at its current width and require one-out-one-in swaps, since total dimensionality is the quantity the curse ultimately punishes."},
+        ]}
+        trap={<>(c) is the realistic-org decoy: the GBDT is the consumer that is ARCHITECTURALLY IMMUNE (per-split feature selection), so a GBDT canary never sings for the consumers that actually die. A canary must share the fragile consumer's failure mode, or it is a mascot.</>}
+        lens={<>Policies inherit the select-vs-aggregate asymmetry: for selecting models a weak feature costs ≈ nothing, so gating them wastes velocity; for distance consumers every admitted coordinate is summed into every comparison, so the gate must measure the thing they consume — the distance MARGIN. Concrete gate: on a labeled sample, compare the distribution of d(query, same-label neighbor) against d(query, random) with and without the candidate feature; admit if the separation (in SDs) holds. (b) repeats the information fallacy at policy level — positive MI does not mean the feature helps a finite-sample distance. (d) punishes the wrong quantity: fifty informative features beat forty mixed ones; width is not the enemy, noise mass is.</>}
+        stretch={<>The L1-regularized linear model was waved through as "selecting." Which failure mode from the L1-vs-L2 page could still make a burst of correlated new features churn ITS behavior?</>}
+      />
+
     </VIS.Section>
   </main>
 );
