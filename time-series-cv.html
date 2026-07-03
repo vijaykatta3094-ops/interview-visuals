@@ -2140,10 +2140,10 @@ flowchart TB
         title="Q3 [Axis C — intuition] — Train MAPE 3.8%, val MAPE 4.1%, prod MAPE 14%. What's the most likely culprit?"
         scenario={<>You forecast SKU-level weekly demand for a retailer. Features include 7-day and 28-day rolling means of sales, day-of-week one-hots, and a {`'lag_1_sales'`} column. CV scheme: 5-fold random k-fold on the rows. Train MAPE 3.8%, val MAPE 4.1%, prod MAPE 14% in the first month after launch. Pick the most likely single cause.</>}
         options={[
-          {key:"a", text:"Model variance — XGBoost is overfitting; reduce max_depth from 8 to 4."},
+          {key:"a", text:"Model variance — the XGBoost is overfitting the training set; reduce its max_depth from 8 down to 4."},
           {key:"b", text:"Distribution shift — customer demand patterns changed after launch; retrain weekly."},
-          {key:"c", text:"Random k-fold on time-series data — train and val are interleaved in time, so lookback features and lag_1 trivially leak the val target.", correct:true},
-          {key:"d", text:"Concept drift specific to the SKU level — switch to per-SKU models."},
+          {key:"c", text:"Random k-fold on time-series data — train/val are interleaved in time, so lookback features and lag_1 leak the val target.", correct:true},
+          {key:"d", text:"Concept drift that is specific to the individual SKU level — switch over to training per-SKU models."},
         ]}
         trap={<>(a) is the reflex 'big gap → overfit' move, but the train-val gap here is TINY (3.8 vs 4.1). The catastrophe is val-to-prod (4.1 → 14), not train-to-val. (b) and (d) are plausible candidates in many forecasting failures, but the structural smell — a tiny train-val gap that explodes only at deployment — almost always points to leakage that the val set ALSO suffers from.</>}
         lens={<>(c). When train and val both look great but prod tanks, the val set is contaminated the same way training is. Random k-fold + lag_1 + rolling means is the textbook setup for the val set being a near-twin of training. Switch to TimeSeriesSplit with gap ≥ 28 and you'll see val MAPE jump immediately toward the true prod number.</>}
@@ -2171,9 +2171,9 @@ flowchart TB
         title="Q5 [Axis D — application] — Fraud detection: same customer in 50 transactions/week. Which CV?"
         scenario={<>Credit-card fraud at a fintech. 200M transactions, 1.2M unique customers, 4 years of history. A bad-actor customer typically makes 20-50 transactions before getting caught. Positive rate 0.4%. You want to estimate generalization both across TIME and across CUSTOMERS unseen during training.</>}
         options={[
-          {key:"a", text:"TimeSeriesSplit with gap=7 days — time is the only axis that matters for fraud."},
-          {key:"b", text:"GroupKFold on customer_id — fraud generalizes by customer, not by time."},
-          {key:"c", text:"TimeSeriesSplit ALONG TIME plus GroupKFold-style customer purging at fold boundaries (PurgedGroupTimeSeriesSplit).", correct:true},
+          {key:"a", text:"TimeSeriesSplit with a gap of 7 days — time is really the only axis that matters at all for fraud."},
+          {key:"b", text:"GroupKFold on customer_id — fraud generalizes across customers, not across time windows."},
+          {key:"c", text:"TimeSeriesSplit along time PLUS GroupKFold-style customer purging at the fold boundaries (PurgedGroupTimeSeriesSplit).", correct:true},
           {key:"d", text:"5-fold stratified k-fold stratified on the fraud label — preserves class balance per fold."},
         ]}
         trap={<>(a) ignores that the SAME customer's transactions span the gap and contaminate folds via customer-level features. (b) ignores time — bad-actor patterns shift quarterly and a non-time-aware fold can train on Q4 2025 fraud and validate on Q1 2024 fraud. (d) is the textbook anti-pattern that ignores both axes.</>}
@@ -2187,8 +2187,8 @@ flowchart TB
         title="Q6 [Axis E — operations] — What does sklearn.TimeSeriesSplit(n_splits=5) actually produce?"
         scenario={<><em>Discriminating insight:</em> sklearn defaults to expanding-window, not rolling, and the first fold uses a small training set. Read the docstring carefully.</>}
         options={[
-          {key:"a", text:"Five non-overlapping (train, val) pairs where each train fold has equal size, in chronological order."},
-          {key:"b", text:"Five (train, val) pairs where the train set EXPANDS by a fixed step each fold and val is always the next contiguous block of equal size.", correct:true},
+          {key:"a", text:"Five non-overlapping (train, val) pairs where each train fold has exactly equal size, arranged in strict chronological order."},
+          {key:"b", text:"Five (train, val) pairs where train EXPANDS by a fixed step each fold and val is the next contiguous equal-size block.", correct:true},
           {key:"c", text:"Five rolling-window pairs with constant train size and a built-in 7-day embargo by default."},
           {key:"d", text:"Five randomly-shuffled folds with a stratification-by-time constraint that forces equal class-balance across folds."},
         ]}
@@ -2202,8 +2202,8 @@ flowchart TB
         title="Q7 [Axis F — failure] — Why might rolling-window CV report HIGHER variance than expanding?"
         scenario={<>You compare 5-fold expanding-window vs 5-fold rolling-window CV on the same demand-forecasting model. Rolling-window per-fold MAPE: [4.1, 5.8, 7.2, 4.3, 11.0]. Expanding-window per-fold MAPE: [4.1, 4.6, 5.0, 4.9, 5.2]. Why such different variance?</>}
         options={[
-          {key:"a", text:"Rolling-window is broken — sklearn has a bug in max_train_size that produces non-uniform val sets."},
-          {key:"b", text:"Rolling-window discards old data, so each fold has a smaller and less-diverse training set; the model is more sensitive to which specific window it sees.", correct:true},
+          {key:"a", text:"Rolling-window is simply broken — sklearn has a known bug in max_train_size that produces non-uniform validation sets."},
+          {key:"b", text:"Rolling-window discards old data, so each fold has a smaller, less-diverse train set — the model is more sensitive to which window it sees.", correct:true},
           {key:"c", text:"Expanding-window is biased — it leaks information from the growing training set back into earlier folds."},
           {key:"d", text:"They will always have identical variance in expectation; the difference must be from random seed instability."},
         ]}
@@ -2218,10 +2218,10 @@ flowchart TB
         title="Q8 [Axis B — mechanism] — Embargo vs purge: which prevents which leak?"
         scenario={<><em>Discriminating insight:</em> purge sits BEFORE val, embargo sits AFTER val. One stops feature leakage, the other stops label leakage. Map each name to its mechanism.</>}
         options={[
-          {key:"a", text:"Purge stops the leak from training features overlapping with val features; embargo stops the leak from val labels (forward-looking) overlapping with the next training fold.", correct:true},
-          {key:"b", text:"Purge and embargo are synonyms — both insert a buffer; the names are aesthetic preferences of different libraries."},
+          {key:"a", text:"Purge stops train FEATURES overlapping val features; embargo stops forward-looking val LABELS overlapping the next training fold.", correct:true},
+          {key:"b", text:"Purge and embargo are exact synonyms — both just insert a buffer; the two names are aesthetic preferences of different libraries."},
           {key:"c", text:"Purge stops label leakage; embargo stops feature leakage. They go in opposite positions for historical reasons."},
-          {key:"d", text:"Embargo is for grouped CV (forbids the same entity across folds); purge is for time-series CV."},
+          {key:"d", text:"Embargo is only for grouped CV (it forbids the same entity across folds), whereas purge is strictly for time-series CV."},
         ]}
         trap={<>(b) and (c) swap or conflate the two. (d) conflates embargo with GroupKFold semantics — embargo is strictly about TIME and forward-looking LABELS.</>}
         lens={<>(a). Purge sits at the START of val and removes training rows whose lookback features touch val timestamps. Embargo sits at the END of val and removes rows from the NEXT training fold whose backward-looking labels (e.g. 'defaulted in next 30 days') would peek INTO the just-finished val window.</>}
@@ -2235,9 +2235,9 @@ flowchart TB
         scenario={<>You're forecasting quarterly revenue. Available: 10 years of monthly data (120 rows). Validation horizon: 1 quarter (3 months). Junior teammate proposes 20-fold TimeSeriesSplit ('more folds = better CV').</>}
         options={[
           {key:"a", text:"20 folds is right — more folds always reduce CV variance and 20 fits the standard sklearn default."},
-          {key:"b", text:"5-8 folds is right — each fold needs a meaningful training window (1+ year) AND a 3-month val window; 20 folds shrinks training to absurdity.", correct:true},
-          {key:"c", text:"3 folds is right — match the number of folds to the forecast horizon (3 months)."},
-          {key:"d", text:"Use leave-one-out CV at the monthly level — 120 folds; bias-free."},
+          {key:"b", text:"5-8 folds — each needs a meaningful train window (1+ year) AND a 3-month val window; 20 folds shrinks training absurdly.", correct:true},
+          {key:"c", text:"3 folds is right — you should always match the number of folds to the forecast horizon of 3 months."},
+          {key:"d", text:"Use leave-one-out CV at the monthly level — a full 120 folds; this approach is completely bias-free."},
         ]}
         trap={<>(a) blindly applies the k-fold heuristic that 'more folds is better' without checking the sample-count consequence. (c) confuses fold count with horizon length — orthogonal concepts. (d) ignores both compute cost and the fact that 1-month val with 119 train rows tells you almost nothing about quarterly forecasting.</>}
         lens={<>(b). Pick fold count to satisfy two constraints: each train fold has enough seasonal cycles (≥ 1 year for monthly), and each val fold matches your forecast horizon. With 120 rows and a 3-month horizon, ~8 folds (12-month val step) hits the sweet spot.</>}
@@ -2250,9 +2250,9 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> TimeSeriesSplit assumes the future resembles the past. What happens when a structural break sits inside one of your folds?</>}
         options={[
           {key:"a", text:"It will UNDERSTATE quality — the COVID shock makes one fold look terrible and drags the mean down."},
-          {key:"b", text:"It will OVERSTATE quality if folds straddle the break: the training side learns pre-COVID patterns and validates on the same regime, missing the post-break degradation.", correct:true},
-          {key:"c", text:"TimeSeriesSplit is robust to structural breaks by construction; nothing changes."},
-          {key:"d", text:"Only Bayesian CV variants handle structural breaks; classic TimeSeriesSplit cannot give meaningful results in this setting."},
+          {key:"b", text:"It OVERSTATES quality: most folds are pure-regime (train and val on the same side of the break), so the post-break degradation is averaged away.", correct:true},
+          {key:"c", text:"TimeSeriesSplit is fully robust to structural breaks by its very construction, so nothing at all changes here."},
+          {key:"d", text:"Only special Bayesian CV variants can handle structural breaks; classic TimeSeriesSplit cannot give any meaningful results at all in this particular setting."},
         ]}
         trap={<>(a) is plausible-sounding and the OPPOSITE of the dominant effect: a fold that straddles the break sees the model trained MOSTLY on one regime and validated MOSTLY on the same regime, so it actually looks fine — and the per-fold variance hides the regime-transition failure. (c) is wishful thinking. (d) overclaims; classic schemes still help if you're explicit about regime-aware folds.</>}
         lens={<>(b). When a structural break sits in the MIDDLE of your dataset and you use expanding-window CV, most folds are 'pure regime' — pre-COVID train+val OR post-COVID train+val. The fold that straddles the break is a tiny minority and gets averaged away. Cure: cut the dataset at the regime break and treat pre- and post- as separate problems, or use rolling-window with a window short enough to be inside one regime.</>}
@@ -2265,8 +2265,8 @@ flowchart TB
         title="Q11 [Axis A — identity] — Is k-fold on shuffled month-of-year features 'time-series CV'?"
         scenario={<>A teammate proposes: 'Drop the date column, compute "month_of_year" as a feature, shuffle the rows, and run standard 5-fold CV. The model can learn seasonality from the month feature, and we get all the benefits of normal CV.'</>}
         options={[
-          {key:"a", text:"Yes — once you encode seasonality as a feature, time-series CV is no longer necessary; classic CV is fine."},
-          {key:"b", text:"No — autocorrelation, lookback features, and regime shifts persist regardless of how seasonality is encoded. Random folds still leak via these other channels.", correct:true},
+          {key:"a", text:"Yes — once you encode the seasonality as an explicit feature, time-series CV is no longer necessary and classic CV is fine."},
+          {key:"b", text:"No — autocorrelation, lookback features, and regime shifts persist however seasonality is encoded; random folds still leak via them.", correct:true},
           {key:"c", text:"Yes, but only if the data has no trend; in trending series you'd still need time-series CV."},
           {key:"d", text:"It depends on whether the model is linear or non-linear; tree models are immune to leak through month_of_year."},
         ]}
@@ -2280,9 +2280,9 @@ flowchart TB
         title="Q12 [Axis B — mechanism] — Why does target encoding leak especially badly in time-series settings?"
         scenario={<><em>Discriminating insight:</em> target encoding replaces a categorical with the mean target value. If computed across all rows globally, val labels participate. If computed per-fold, you also need to respect time.</>}
         options={[
-          {key:"a", text:"It leaks the SAME amount as in tabular CV — there is nothing special about time-series."},
-          {key:"b", text:"It leaks via the LABEL — the val row's target contributes to its own feature value when encoding is computed globally; plus the future leaks into the past when encoding is fit on the full timeline.", correct:true},
-          {key:"c", text:"It leaks only when the categorical is also the time index — otherwise time-series target encoding is safe."},
+          {key:"a", text:"It leaks exactly the SAME amount as it does in ordinary tabular CV — there is nothing special about the time-series case."},
+          {key:"b", text:"Via the LABEL — a val row's target enters its own encoded feature when encoding is global; and the future leaks into the past on a full-timeline fit.", correct:true},
+          {key:"c", text:"It leaks only when the categorical column is also the time index — in every other case time-series target encoding is perfectly safe."},
           {key:"d", text:"Target encoding never leaks if you use a smoothing prior (e.g. m-estimate) because the prior dominates the signal."},
         ]}
         trap={<>(a) misses the second leak channel. (c) is a fictional carve-out. (d) confuses regularizing the encoding with preventing the leak — smoothing reduces variance, it does not stop information flow.</>}
@@ -2311,10 +2311,10 @@ flowchart TB
         title="Q14 [Axis F — failure] — When does TimeSeriesSplit produce a misleadingly OPTIMISTIC val score?"
         scenario={<><em>Discriminating insight:</em> the val score depends on what the val window looks like. If the val window happens to be an easier regime than the production window, your offline number flatters.</>}
         options={[
-          {key:"a", text:"Never — TimeSeriesSplit is conservative by design; it cannot overstate quality."},
-          {key:"b", text:"When the val windows happen to fall on 'easy' regimes (calm volatility, stable demand) while production faces a structural break the CV never tested.", correct:true},
-          {key:"c", text:"Only when n_splits is too small — go to n_splits=20 and the issue disappears."},
-          {key:"d", text:"Only when the model is misspecified — a flexible-enough model is immune to this issue."},
+          {key:"a", text:"Never — TimeSeriesSplit is conservative purely by design, so it simply cannot overstate the model quality."},
+          {key:"b", text:"When the val windows fall on 'easy' regimes (calm volatility, stable demand) while production hits a structural break the CV never tested.", correct:true},
+          {key:"c", text:"Only when the n_splits value is set too small — simply go to n_splits=20 and this issue disappears entirely."},
+          {key:"d", text:"Only when the model happens to be misspecified — a sufficiently flexible model is completely immune to this issue."},
         ]}
         trap={<>(a) is the textbook reassurance and wrong: 'no leak' doesn't mean 'predictive of prod.' (c) confuses fold count with regime coverage. (d) is unrelated.</>}
         lens={<>(b). TimeSeriesSplit gives you a leak-free estimate, but the val windows it picks are still a sample from your historical distribution. If history is mostly calm and prod hits a storm, CV will under-predict the storm error. Cure: report per-fold MAPE distribution, not just mean; explicitly include a 'stress-test' fold spanning the worst-known regime.</>}
@@ -2326,10 +2326,10 @@ flowchart TB
         title="Q15 [Axis E — operations] — How do you implement a rolling-window with embargo in sklearn?"
         scenario={<><em>Discriminating insight:</em> as of sklearn 1.6, TimeSeriesSplit supports max_train_size and gap. Embargo is the gap on the FAR side of val and requires custom logic.</>}
         options={[
-          {key:"a", text:"TimeSeriesSplit(n_splits=5, max_train_size=100, gap=7) plus a custom wrapper that excludes the 7 rows after each val window from the next fold's training set.", correct:true},
-          {key:"b", text:"TimeSeriesSplit(n_splits=5, gap=7, embargo=7) — sklearn supports both parameters natively."},
-          {key:"c", text:"There is no way; you must use mlfinlab or implement from scratch."},
-          {key:"d", text:"Use TimeSeriesSplit with shuffle=True; the shuffle randomizes embargo placement automatically."},
+          {key:"a", text:"TimeSeriesSplit(n_splits=5, max_train_size=100, gap=7) plus a wrapper that excludes the 7 rows after each val window from the next train fold.", correct:true},
+          {key:"b", text:"TimeSeriesSplit(n_splits=5, gap=7, embargo=7) — sklearn actually supports both of these parameters completely natively."},
+          {key:"c", text:"There is genuinely no way to do it; you are forced to use mlfinlab or implement the whole thing from scratch."},
+          {key:"d", text:"Just use TimeSeriesSplit with shuffle=True; the shuffling then randomizes the embargo placement completely automatically."},
         ]}
         trap={<>(b) invents an embargo parameter that sklearn does not provide. (c) is overly defeatist — gap+max_train_size cover the common case; only embargo needs custom code. (d) is nonsensical — shuffle=True is incompatible with TimeSeriesSplit.</>}
         lens={<>(a). Build on TimeSeriesSplit for the train+gap+val partitioning, then post-process the splits in a small wrapper that walks them and excludes the embargo region from subsequent training folds. mlfinlab packages this; sklearn does not.</>}
@@ -2341,10 +2341,10 @@ flowchart TB
         title="Q16 [Axis C — intuition] — Per-fold MAPE: [3.8, 3.9, 4.0, 4.1, 4.2]. What does this MAINLY tell you?"
         scenario={<>You run 5-fold expanding-window CV on a forecasting model. Per-fold MAPE: [3.8, 3.9, 4.0, 4.1, 4.2]. Monotonically increasing across folds.</>}
         options={[
-          {key:"a", text:"The model is overfitting more in later folds; reduce model capacity."},
-          {key:"b", text:"There is concept drift — the prediction task is getting genuinely harder over time, or the model's pre-drift training data is becoming less representative.", correct:true},
-          {key:"c", text:"There is leakage decreasing across folds — early folds are leakier than later folds."},
-          {key:"d", text:"Random noise — the trend is meaningless with only 5 folds."},
+          {key:"a", text:"The model is clearly overfitting more and more in the later folds; you should reduce its capacity."},
+          {key:"b", text:"Concept drift — the task is getting genuinely harder over time, or the pre-drift training data is becoming less representative.", correct:true},
+          {key:"c", text:"There is leakage that decreases across the folds — the early folds are much leakier than the later folds are."},
+          {key:"d", text:"This is just random noise — the apparent trend is completely meaningless with only 5 folds."},
         ]}
         trap={<>(a) confuses 'higher MAPE on later folds' with 'overfitting'. Overfitting would show up as train-val gap, not as a monotonic upward val trend across time. (c) reverses the leak direction — leaks make scores BETTER, so a monotonic worsening is the opposite of a fading leak. (d) gives up — a monotonic trend with std small relative to the slope is meaningful even at n=5.</>}
         lens={<>(b). Monotonic worsening across time is the textbook signature of concept drift — the recent regime is genuinely harder, the older training data is less representative, or both. Cure: switch to rolling-window with a recent training window, and consider retraining cadence.</>}
@@ -2357,10 +2357,10 @@ flowchart TB
         title="Q17 [Axis A — identity] — Is 'leave-one-customer-out' CV time-series CV?"
         scenario={<><em>Discriminating insight:</em> leave-one-out-by-group eliminates one type of leak (customer) but says nothing about time order within or across customers.</>}
         options={[
-          {key:"a", text:"Yes — leaving an entity out is a generalization of time-series CV."},
-          {key:"b", text:"No — it prevents customer-level leakage but not time-level leakage; the held-out customer's history can still straddle the training window in time.", correct:true},
+          {key:"a", text:"Yes — leaving an entire entity out is simply a generalization of ordinary time-series CV."},
+          {key:"b", text:"No — it prevents customer leakage but not TIME leakage; the held-out customer's history can still straddle the training window.", correct:true},
           {key:"c", text:"Yes, because each customer's data forms a mini time-series and excluding it respects time within each one."},
-          {key:"d", text:"It depends on the loss function — only regression losses respect time; classification losses do not."},
+          {key:"d", text:"It depends entirely on the loss function — only regression losses respect time order; classification losses do not."},
         ]}
         trap={<>(a) inflates the scope of group CV. (c) sounds right but confuses 'has a time index per customer' with 'time-aware CV'. (d) is unrelated.</>}
         lens={<>(b). Group CV and time-series CV address ORTHOGONAL leakage axes. To handle both, combine them — PurgedGroupTimeSeriesSplit or its equivalents.</>}
@@ -2372,10 +2372,10 @@ flowchart TB
         title="Q18 [Axis F — failure] — When can random k-fold be UNBIASED on time-stamped data?"
         scenario={<><em>Discriminating insight:</em> the leak requires temporal DEPENDENCE between rows. If rows are conditionally i.i.d. given features, time order is irrelevant.</>}
         options={[
-          {key:"a", text:"Never — any dataset with a timestamp must use TimeSeriesSplit; this is a hard rule."},
-          {key:"b", text:"When rows are conditionally i.i.d. given features (no autocorrelation, no shared lookback, no autoregressive label, no shared entity); rare but possible.", correct:true},
-          {key:"c", text:"Only when the timestamp column is removed from features before training."},
-          {key:"d", text:"When the model is a simple linear regression with no interactions."},
+          {key:"a", text:"Never — any dataset that carries a timestamp column at all must use TimeSeriesSplit; treat this as a hard rule."},
+          {key:"b", text:"When rows are conditionally i.i.d. given features — no autocorrelation, shared lookback, or autoregressive label. Rare but possible.", correct:true},
+          {key:"c", text:"Only in the case when the timestamp column has been removed from the feature set before training begins."},
+          {key:"d", text:"Only when the model is a simple linear regression with no feature interaction terms at all."},
         ]}
         trap={<>(a) is the overgeneralization that catches juniors. (c) and (d) are red herrings — removing the date column or simplifying the model does not affect whether rows are dependent.</>}
         lens={<>(b). Time-series CV is necessary IFF rows are temporally dependent. A dataset where each row is a fully-described independent draw — e.g. a one-shot snapshot per row with no rolling features and no autoregressive target — can use random k-fold even with timestamps. Concrete example: image-classification with metadata timestamps where labels do not depend on temporal context.</>}
@@ -2388,10 +2388,10 @@ flowchart TB
         title="Q19 [Axis E — operations] — Scaler placement in a TimeSeriesSplit pipeline"
         scenario={<>You have a forecasting pipeline: StandardScaler → XGBoost. You wrap them in sklearn.pipeline.Pipeline and run cross_val_score with TimeSeriesSplit. Is the scaler leak-safe?</>}
         options={[
-          {key:"a", text:"No — Pipeline still fits the scaler on the full dataset before CV begins."},
-          {key:"b", text:"Yes — Pipeline refits the scaler on EACH training fold separately during cross_val_score; the val fold is then transformed using train-only stats.", correct:true},
+          {key:"a", text:"No — the Pipeline still quietly fits the scaler on the full dataset before the CV loop even begins."},
+          {key:"b", text:"Yes — Pipeline refits the scaler on each train fold in cross_val_score, then transforms val with train-only stats.", correct:true},
           {key:"c", text:"Only if you set Pipeline(memory=None) — memoization caches the global fit and leaks."},
-          {key:"d", text:"Only if you wrap in a ColumnTransformer first; bare Pipeline always leaks."},
+          {key:"d", text:"Only if you wrap everything in a ColumnTransformer first; a bare Pipeline on its own always leaks the stats."},
         ]}
         trap={<>(a) is the persistent myth that sklearn pre-fits transformers; it does not. (c) and (d) invent leakage knobs that do not exist.</>}
         lens={<>(b). Pipeline + cross_val_score is the canonical leak-safe pattern: every fold gets its own fit. The leak path most people fall into is fitting the scaler MANUALLY on the dataset before passing to cross_val_score — which is what (a) describes but is a user mistake, not a Pipeline default.</>}
@@ -2419,10 +2419,10 @@ flowchart TB
         title="Q21 [Axis C — intuition] — Train MAPE 4.0%, val MAPE 9.0%, prod MAPE 9.5%. Diagnosis?"
         scenario={<>Forecasting model. Train MAPE 4.0%, val MAPE 9.0%, prod MAPE 9.5%. CV scheme: TimeSeriesSplit with gap=7. Pick the most likely single cause.</>}
         options={[
-          {key:"a", text:"Severe overfitting — train-val gap is 5 points and the model is fitting train noise. Reduce capacity.", correct:true},
-          {key:"b", text:"Time-series leakage — val is contaminated and the model is exploiting it."},
-          {key:"c", text:"Distribution shift between val and prod — retrain immediately."},
-          {key:"d", text:"Everything is fine — val ~= prod is the success criterion."},
+          {key:"a", text:"Overfitting — the 5-point train-val gap means the model is fitting train noise. Reduce capacity.", correct:true},
+          {key:"b", text:"Time-series leakage — the val set is contaminated and the model is quietly exploiting it."},
+          {key:"c", text:"Distribution shift between the val window and prod — you should retrain the model immediately."},
+          {key:"d", text:"Everything is fine here — val roughly equal to prod is the whole success criterion."},
         ]}
         trap={<>(b) reverses the usual leakage signature. With leakage, val would look ARTIFICIALLY GOOD (close to train), not artificially bad. Here val tracks prod, which is exactly what a leak-free CV looks like. (c) misreads the val/prod numbers — they MATCH, so no shift between them. (d) ignores the train-val gap.</>}
         lens={<>(a). Healthy CV diagnostic: val ≈ prod (CV is honest), but train ≪ val means classical overfitting. This is the GOOD outcome from the CV's perspective — it told you the truth about generalization — but the model still needs regularization, more data, or simpler structure.</>}
@@ -2434,10 +2434,10 @@ flowchart TB
         title="Q22 [Axis B — mechanism] — Why does Bayesian HPO overfit to TimeSeriesSplit folds even more than to random folds?"
         scenario={<><em>Discriminating insight:</em> Bayesian HPO adapts its sampling to past CV scores. The more correlated the folds, the more HPO can exploit that structure.</>}
         options={[
-          {key:"a", text:"It doesn't — Bayesian HPO is unbiased w.r.t. CV scheme."},
-          {key:"b", text:"TimeSeriesSplit folds are HIGHLY CORRELATED (they share the early training data), so Bayesian HPO can exploit shared idiosyncrasies more efficiently than with random folds.", correct:true},
-          {key:"c", text:"TimeSeriesSplit folds are independent by construction; HPO cannot overfit them."},
-          {key:"d", text:"Only for deep networks; Bayesian HPO on tree models cannot overfit TimeSeriesSplit folds."},
+          {key:"a", text:"It actually doesn't happen at all — Bayesian HPO is provably unbiased with respect to whichever CV scheme you happen to choose."},
+          {key:"b", text:"TimeSeriesSplit folds are HIGHLY CORRELATED (shared early data), so HPO exploits shared idiosyncrasies more than with random folds.", correct:true},
+          {key:"c", text:"TimeSeriesSplit folds are fully independent by construction, so HPO has no way to overfit them."},
+          {key:"d", text:"Only for deep networks; Bayesian HPO run on tree models simply cannot overfit TimeSeriesSplit folds."},
         ]}
         trap={<>(a) and (c) deny the issue. (d) carves out a model-specific exception that doesn't hold.</>}
         lens={<>(b). The shared training prefix across expanding-window folds creates strongly-correlated per-fold scores. Bayesian HPO (Optuna, Hyperopt) treats them as a structured surface and concentrates samples near apparent optima — which are actually optima for the shared idiosyncrasies, not for generalization. Cure: nested CV with an outer test fold the HPO never sees.</>}
@@ -2450,10 +2450,10 @@ flowchart TB
         title="Q23 [Axis A — identity] — Does cross-validation give a 'better' estimate than holdout for time-series?"
         scenario={<><em>Discriminating insight:</em> CV gives k estimates and a variance; holdout gives one estimate and no variance. The 'better' depends on what you want.</>}
         options={[
-          {key:"a", text:"Yes, always — CV gives a tighter point estimate via averaging."},
-          {key:"b", text:"It gives a different kind of estimate: k scores plus a variance, at higher compute cost. For final production sign-off, a single holdout on the latest window often matches production better.", correct:true},
-          {key:"c", text:"No — holdout is always preferred for time-series because it best mimics deployment."},
-          {key:"d", text:"They are equivalent — the central limit theorem ensures both converge to the true generalization error."},
+          {key:"a", text:"Yes, in essentially every case — CV gives a strictly tighter point estimate by averaging the score across all of the folds."},
+          {key:"b", text:"A different KIND of estimate: k scores plus variance, at higher compute. A latest-window holdout often matches prod better for sign-off.", correct:true},
+          {key:"c", text:"No — a holdout is always preferred for time-series work because it most closely mimics real deployment."},
+          {key:"d", text:"They are equivalent — the central limit theorem guarantees both converge to the same true generalization error."},
         ]}
         trap={<>(a) overlooks that CV mean can be biased if all folds share a flaw. (c) overstates holdout. (d) ignores finite-sample effects entirely.</>}
         lens={<>(b). Two answers to two questions: 'how stable is my model across regimes?' → CV; 'what will I see if I ship next week?' → holdout on the most recent window. Mature practitioners report both.</>}
@@ -2465,10 +2465,10 @@ flowchart TB
         title="Q24 [Axis F — failure] — What goes wrong when train-fold sizes are vastly unequal?"
         scenario={<>You run TimeSeriesSplit(n_splits=10) on 1000 rows. Fold 1 trains on 100 rows; fold 10 trains on 1000 rows. Per-fold MAPE: [22.0, 14.0, 9.0, 7.0, 6.5, 6.0, 5.7, 5.5, 5.4, 5.3].</>}
         options={[
-          {key:"a", text:"The mean MAPE (8.6) is the best honest estimate of generalization."},
-          {key:"b", text:"The mean is misleading — early folds are training-set-size-limited and not representative of the final production model, which uses all data. Weight by fold or report only late folds.", correct:true},
-          {key:"c", text:"Random fold variance — re-run with a different seed."},
-          {key:"d", text:"There is a leak in the early folds; the late folds give the true number."},
+          {key:"a", text:"The unweighted mean MAPE of 8.6 is the single best honest estimate of generalization here."},
+          {key:"b", text:"The mean misleads — early folds are training-size-limited, not the final model. Weight by fold size or report only late folds.", correct:true},
+          {key:"c", text:"This is nothing but random fold variance — you should simply re-run the entire procedure again with a different random seed."},
+          {key:"d", text:"There is a data leak in the early folds; only the late folds give you the true number."},
         ]}
         trap={<>(a) takes the unweighted mean at face value. (c) confuses systematic train-size bias with random noise. (d) reverses the leak signature (leaks make scores BETTER, not worse).</>}
         lens={<>(b). The first folds measure 'model with 100 rows' which is not what you'll deploy. For final-model estimation, weight folds by training size or report only the steady-state late folds. For 'is more data still helping?', plot the per-fold curve — it shows the learning curve along time.</>}
@@ -2480,7 +2480,7 @@ flowchart TB
         title="Q25 [Axis E — operations] — In what order should you split, scale, target-encode, and impute?"
         scenario={<><em>Discriminating insight:</em> every preprocessing step that touches the label or summary statistics must be fit ONLY on the training fold. Order matters because some steps assume others have already happened.</>}
         options={[
-          {key:"a", text:"Split first, then impute on train, then scale on train, then target-encode on train using train-only labels; transform val with each fitted step in the same order.", correct:true},
+          {key:"a", text:"Split first, then impute, scale, and target-encode on TRAIN (using train-only labels); transform val with each fitted step in the same order.", correct:true},
           {key:"b", text:"Impute and scale on the full dataset (so train and val are on the same numerical basis), then split, then target-encode per fold."},
           {key:"c", text:"Target-encode first on the full dataset (categorical features are stable across folds), then split, then scale and impute per fold."},
           {key:"d", text:"Order doesn't matter as long as each step is wrapped in sklearn.Pipeline — Pipeline handles ordering internally."},
