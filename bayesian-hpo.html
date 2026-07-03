@@ -2157,9 +2157,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> TPE flips the conditional. Identify which density gets which conditioning event, and what ratio drives selection.</>}
         options={[
           { key: "a", text: "It fits p(loss | x) directly with a regression tree and picks the x minimizing predicted loss." },
-          { key: "b", text: "It fits l(x) = p(x | loss below gamma-quantile) and g(x) = p(x | loss at or above gamma-quantile) with Parzen estimators, picks x maximizing l(x)/g(x).", correct: true },
+          { key: "b", text: "It fits l(x)=p(x | loss below the gamma-quantile) and g(x)=p(x | loss above it) with Parzen estimators, and picks x maximizing l(x)/g(x).", correct: true },
           { key: "c", text: "It fits a Gaussian mixture over (x, loss) jointly and samples from the conditional distribution at the predicted-best loss." },
-          { key: "d", text: "It uses a random forest as the surrogate and queries the per-leaf empirical loss distribution to pick candidates." }
+          { key: "d", text: "It uses a random forest as the surrogate model and queries its per-leaf empirical loss distribution to select the candidate points." }
         ]}
         trap={<>(a) describes a generic regression-surrogate approach (e.g. SMAC's random forest), not TPE. (c) is plausible-sounding but wrong — TPE conditions x on the loss, not the other way around. (d) is SMAC, not TPE.</>}
         lens={<>(b). The 'tree-structured' part refers to the conditional structure of the search space (hierarchical HPs), not to decision trees. The l(x)/g(x) ratio is proportional to EI under mild assumptions — TPE is doing approximate EI via density ratios.</>} />
@@ -2168,9 +2168,9 @@ flowchart TD
         title="Q6 — Why search learning rate in log space? (E)"
         scenario={<><em>Discriminating insight:</em> the surrogate assumes nearby HPs give similar losses. What does 'nearby' mean for an HP whose effects span orders of magnitude?</>}
         options={[
-          { key: "a", text: "Log space is a numerical-stability hack; on modern GPUs with bf16 it makes no measurable difference." },
+          { key: "a", text: "Log space is purely a numerical-stability hack; on modern GPUs running bf16 it makes essentially no measurable difference at all." },
           { key: "b", text: "Linear-space search is fine; the surrogate's kernel lengthscale adapts automatically to any scale via marginal-likelihood fitting." },
-          { key: "c", text: "LR's effect is exponential in its value, so a smooth surrogate on a linear axis wastes capacity modeling a flat region next to a cliff — log straightens it.", correct: true },
+          { key: "c", text: "LR's effect is exponential, so a smooth surrogate on a linear axis wastes capacity on a flat region next to a cliff — log straightens it.", correct: true },
           { key: "d", text: "Log space ensures the EI integral has a closed form; linear space requires numerical quadrature." }
         ]}
         trap={<>(a) trivializes a real geometry point. (b) overstates kernel adaptation — lengthscales adapt some, but not enough to bridge a 4-decade scale on a linear axis. (d) is fiction; EI is closed-form regardless of axis transform.</>}
@@ -2181,8 +2181,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> UCB has an explicit knob. Name it and describe both endpoints of the tradeoff.</>}
         options={[
           { key: "a", text: "Via the kernel lengthscale: small lengthscales = more explore, large = more exploit." },
-          { key: "b", text: "Via kappa in mu minus kappa sigma (minimization): kappa toward 0 collapses to pure exploit on the mean; kappa toward infinity collapses to pure variance hunt.", correct: true },
-          { key: "c", text: "Via the warm-up budget: more warm-up trials = more explore baked in before the surrogate takes over." },
+          { key: "b", text: "Via kappa in (mu − kappa·sigma): kappa→0 collapses to pure exploit on the mean; kappa→infinity collapses to a pure variance hunt.", correct: true },
+          { key: "c", text: "Via the warm-up trial budget: more warm-up trials means more exploration is baked in before the surrogate model takes over the search." },
           { key: "d", text: "Via the quantile gamma in the TPE good/bad split — UCB and TPE share this hyperparameter under the hood." }
         ]}
         trap={<>(a) confuses kernel hyperparameters with acquisition hyperparameters — orthogonal levers. (c) confuses warm-up (a meta-strategy) with the acquisition's own tradeoff knob. (d) confuses UCB with TPE — different acquisitions.</>}
@@ -2192,9 +2192,9 @@ flowchart TD
         title="Q8 — A bug: the surrogate keeps revisiting the same point. Why? (F)"
         scenario={<><em>Discriminating insight:</em> What property of the GP posterior near observed points should prevent revisits, and what acquisition pathology would override it?</>}
         options={[
-          { key: "a", text: "The GP is overfitting; reduce the kernel amplitude to suppress posterior variance away from data." },
-          { key: "b", text: "sigma collapses to ~0 at observed points, so any reasonable acquisition (EI, UCB with kappa above 0) gives ~0 there. PI with xi=0 and a noisy objective can still pick near-incumbents — switch to EI or set xi above 0.", correct: true },
-          { key: "c", text: "The acquisition has multiple local maxima; switch from L-BFGS to grid search for the inner loop." },
+          { key: "a", text: "The GP model is overfitting the data; reduce its kernel amplitude in order to suppress the posterior variance away from the observed data." },
+          { key: "b", text: "sigma→0 at observed points, so EI or UCB (kappa>0) is ~0 there. But PI with xi=0 under noise can still pick near-incumbents — switch to EI or set xi>0.", correct: true },
+          { key: "c", text: "The acquisition surface has multiple local maxima; you should switch from L-BFGS over to a grid search for the entire inner optimization loop." },
           { key: "d", text: "The observed loss values are deterministic; add noise to the y values to force the surrogate to explore." }
         ]}
         trap={<>(a) treats a symptom by breaking the surrogate. (c) is a real concern but doesn't explain WHY the maxima sit on observations. (d) suggests breaking the data — and noise jitter for numerical stability is unrelated to the revisit issue.</>}
@@ -2216,10 +2216,10 @@ flowchart TD
         title="Q10 — Choosing the Matern-5/2 over RBF as the GP kernel. Why? (C)"
         scenario={<><em>Discriminating insight:</em> what does the kernel choice encode about the assumed function smoothness, and why is 'too smooth' a problem for loss landscapes?</>}
         options={[
-          { key: "a", text: "Matern-5/2 is faster to invert than RBF, halving the per-trial cost." },
-          { key: "b", text: "RBF assumes infinitely-differentiable functions, which overstates smoothness on realistic loss surfaces; Matern-5/2 (twice-differentiable) is a better prior for BHPO.", correct: true },
+          { key: "a", text: "The Matern-5/2 kernel is meaningfully faster to invert than RBF is, roughly halving the per-trial computational cost of the search." },
+          { key: "b", text: "RBF assumes infinitely-differentiable functions, overstating smoothness on real loss surfaces; Matern-5/2 (twice-differentiable) is a better BHPO prior.", correct: true },
           { key: "c", text: "RBF can have negative eigenvalues in finite-precision arithmetic; Matern-5/2 is numerically stable." },
-          { key: "d", text: "Matern-5/2 is non-stationary while RBF is stationary, letting Matern handle scale-dependent variance better." }
+          { key: "d", text: "Matern-5/2 is non-stationary whereas RBF is stationary, which lets the Matern kernel handle scale-dependent variance considerably better." }
         ]}
         trap={<>(a) is fiction — cost is dominated by n. (c) gets the symptom (numerical issues) but wrong cause; both are positive-definite. (d) reverses it — both are stationary in the standard parameterization.</>}
         lens={<>(b). The RBF prior asserts the loss is C-infinity; in practice losses have sharp features near regime boundaries (e.g. LR cliff into divergence). Matern-5/2 with k=2 derivatives is the empirical sweet spot for BHPO surrogates.</>} />
@@ -2229,9 +2229,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> GPs need a kernel. What does it even mean for two categorical values to be 'close'?</>}
         options={[
           { key: "a", text: "Encode categories as one-hot vectors and use the standard RBF kernel; the GP handles the rest." },
-          { key: "b", text: "GPs handle categorical HPs natively via the marginal-likelihood fit; no special encoding required." },
-          { key: "c", text: "GPs need a custom kernel for categoricals (e.g. Hamming or per-category indicator). TPE handles them natively via per-leaf Parzen estimators — often a cleaner choice when many HPs are categorical.", correct: true },
-          { key: "d", text: "Convert each category to its empirical-best-loss rank and treat it as continuous; the surrogate is then well-defined." }
+          { key: "b", text: "GPs handle categorical HPs completely natively via the marginal-likelihood fit, so no special encoding of the categories is ever required." },
+          { key: "c", text: "GPs need a custom categorical kernel (Hamming/indicator); TPE handles them natively via per-leaf Parzen — cleaner when many HPs are categorical.", correct: true },
+          { key: "d", text: "Convert every category to its empirical-best-loss rank and then treat it as continuous, so that the surrogate becomes fully well-defined." }
         ]}
         trap={<>(a) sort-of-works but the RBF semantics on a one-hot are weird (all categories equidistant). (b) is false. (d) introduces label leakage — the encoding depends on the very losses you're optimizing.</>}
         lens={<>(c). This is one of TPE's headline advantages over GPs: hierarchical / categorical search spaces are first-class. Optuna picked TPE as default partly for this reason.</>} />
@@ -2240,9 +2240,9 @@ flowchart TD
         title="Q12 — Multi-fidelity BHPO: when does Hyperband beat plain BHPO? (B)"
         scenario={<><em>Discriminating insight:</em> what new dimension does multi-fidelity unlock, and what's the prerequisite on your trials for it to apply?</>}
         options={[
-          { key: "a", text: "When the search space is high-dimensional, Hyperband's bracketing reduces effective dimension." },
-          { key: "b", text: "When trials are pausable (the budget axis = epochs / data fraction / image resolution), Hyperband can early-kill bad configs and reallocate compute — no surrogate fit needed.", correct: true },
-          { key: "c", text: "When categorical HPs dominate — Hyperband's discrete branching handles them more naturally than GPs." },
+          { key: "a", text: "When the search space is genuinely high-dimensional, Hyperband's successive-bracketing procedure reduces the effective dimension of the problem." },
+          { key: "b", text: "When trials are pausable (budget = epochs / data fraction / resolution), Hyperband early-kills bad configs and reallocates compute — no surrogate needed.", correct: true },
+          { key: "c", text: "When categorical HPs dominate the space — Hyperband's discrete branching structure handles them far more naturally than any GP can." },
           { key: "d", text: "When the val set is small — Hyperband's repeated sampling averages out val noise more aggressively than BHPO." }
         ]}
         trap={<>(a) overclaims a dimension-reduction property Hyperband doesn't have. (c) confuses Hyperband with TPE. (d) is unrelated — Hyperband doesn't repeated-sample, it successive-halves.</>}
@@ -2254,8 +2254,8 @@ flowchart TD
         options={[
           { key: "a", text: "Nothing breaks; just let all 8 workers pull the argmax of the same acquisition — they'll find slightly different local maxima." },
           { key: "b", text: "BHPO is inherently sequential; you must serialize the workers (1 trial at a time) to preserve the convergence guarantees." },
-          { key: "c", text: "Use a 'fantasy' / Kriging-believer trick: after picking x_1 for worker 1, condition the surrogate on the predicted y at x_1 and pick x_2 from the conditioned posterior. Repeat 8 times.", correct: true },
-          { key: "d", text: "Use UCB with kappa = sqrt(log(t/n_workers)) — the kappa adjustment compensates for parallelism." }
+          { key: "c", text: "Use the 'fantasy'/kriging-believer trick: after picking x_1, condition the surrogate on the predicted y at x_1, pick x_2 from the update, repeat 8 times.", correct: true },
+          { key: "d", text: "Use UCB with kappa = sqrt(log(t / n_workers)) — this particular kappa adjustment is what compensates for the degree of parallelism." }
         ]}
         trap={<>(a) sounds right but in practice all 8 collapse onto the same EI peak. (b) is over-cautious — there are parallel BHPO algorithms. (d) sounds plausible but garbles two unrelated formulas.</>}
         lens={<>(c). The 'kriging-believer' / fantasy-imputation trick (and its principled cousin q-EI) lets you propose a batch without the workers stepping on each other. Most production BHPO libraries (Ax, BoTorch, Optuna) implement it.</>} />
@@ -2264,10 +2264,10 @@ flowchart TD
         title="Q14 — A trial diverged (loss = NaN). How do you feed it to the surrogate? (F)"
         scenario={<><em>Discriminating insight:</em> the surrogate is a regression over (x, y). A NaN y is not a valid regression target. What's the principled fix?</>}
         options={[
-          { key: "a", text: "Drop the trial entirely; the surrogate only sees successful trials, which keeps the posterior well-defined." },
-          { key: "b", text: "Impute a large finite value (e.g. 10x worst observed) so the surrogate learns to avoid that region; explicitly modeling failure as a separate classifier (constrained BHPO) is the more principled fix.", correct: true },
+          { key: "a", text: "Just drop the diverged trial entirely; the surrogate then only ever sees successful trials, which keeps its posterior cleanly well-defined." },
+          { key: "b", text: "Impute a large finite value (e.g. 10x worst) so the surrogate avoids the region; a feasibility classifier (constrained BHPO) is the principled fix.", correct: true },
           { key: "c", text: "Impute the mean of all observed losses so the trial has no net effect on the surrogate." },
-          { key: "d", text: "Re-run the trial with a different random seed; surrogates can't handle censored data." }
+          { key: "d", text: "Re-run the diverged trial with a different random seed, since the surrogate models simply cannot handle censored or missing data." }
         ]}
         trap={<>(a) lets BHPO keep proposing in the divergence region. (c) actively pulls the surrogate's mean toward the failed zone — worst of both worlds. (d) wastes compute and doesn't generalize.</>}
         lens={<>(b). Crash regions are real information. Either impute aggressively (cheap) or fit a separate feasibility classifier and multiply EI by P(feasible) — the constrained-BHPO formulation. BoTorch / Ax both support this.</>} />
@@ -2276,10 +2276,10 @@ flowchart TD
         title="Q15 — The surrogate's posterior mean predicts loss=0.21 at x. What does that mean? (D)"
         scenario={<><em>Discriminating insight:</em> the surrogate is a regressor. What's the right interpretation of its prediction at a point we haven't measured?</>}
         options={[
-          { key: "a", text: "The model trained at x is guaranteed to achieve val-loss = 0.21." },
-          { key: "b", text: "The point estimate of val-loss at x is 0.21 — but the uncertainty sigma(x) is the load-bearing companion number, and pure-mean decisions ignore it.", correct: true },
+          { key: "a", text: "The specific model that you train at the point x is essentially guaranteed to achieve a validation loss of exactly 0.21." },
+          { key: "b", text: "The point estimate of val-loss at x is 0.21 — but the uncertainty sigma(x) is the load-bearing companion that pure-mean decisions ignore.", correct: true },
           { key: "c", text: "There's a 50% chance the val-loss at x is below 0.21; this is the median, not the mean." },
-          { key: "d", text: "x has been observed with val-loss = 0.21; the GP interpolates exactly through training points." }
+          { key: "d", text: "The point x has already been observed with val-loss = 0.21; the GP interpolates exactly through all of its training points." }
         ]}
         trap={<>(a) treats a surrogate prediction as ground truth. (c) confuses mean and median (under Gaussian posterior they coincide, but the framing 'there's a 50% chance' is the wrong reading). (d) confuses the predicted value with an observation.</>}
         lens={<>(b). Always read mu alongside sigma. A mu=0.21 with sigma=0.3 is barely a prediction; a mu=0.21 with sigma=0.02 is a strong one. Acquisition functions use BOTH for exactly this reason — pure-mean greedy ignores half the information.</>} />
@@ -2288,10 +2288,10 @@ flowchart TD
         title="Q16 — Closed-form EI requires what posterior shape? (C)"
         scenario={<><em>Discriminating insight:</em> EI = sigma times (z Phi(z) + phi(z)) has Phi and phi in it. What posterior shape makes those the right functions to use?</>}
         options={[
-          { key: "a", text: "Heavy-tailed (Student-t) posterior — the t-density is what shows up in the closed form." },
-          { key: "b", text: "Gaussian posterior at the candidate point. Phi and phi are the standard-normal CDF and PDF; the closed form follows from integrating the truncated normal.", correct: true },
+          { key: "a", text: "A heavy-tailed Student-t posterior — the t-density is precisely the function that ends up showing up inside the EI closed form." },
+          { key: "b", text: "Gaussian posterior at the candidate. Phi and phi are the standard-normal CDF and PDF; the closed form follows from the truncated normal.", correct: true },
           { key: "c", text: "Any unimodal posterior — only unimodality matters, not the specific family." },
-          { key: "d", text: "Discrete posterior over a finite candidate grid — the closed form is a sum over grid points." }
+          { key: "d", text: "A discrete posterior over some finite candidate grid — in that case the closed form becomes a simple sum taken over the grid points." }
         ]}
         trap={<>(a) confuses heavy-tailed alternatives for the standard form. (c) overclaims — only Gaussian gives the closed form; other unimodals need quadrature. (d) confuses the inner acquisition optimization with the posterior shape.</>}
         lens={<>(b). The GP posterior at any x is Gaussian by definition. EI is the expected value of max(f-star minus f(x), 0) under that Gaussian, which integrates to sigma times (z Phi(z) + phi(z)) by truncated-Gaussian identities. Non-Gaussian surrogates (deep ensembles, BNNs) need numerical EI.</>} />
@@ -2301,8 +2301,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> identify regimes where the surrogate's smoothness assumption hurts more than it helps.</>}
         options={[
           { key: "a", text: "When the budget is huge (10,000+ trials); the surrogate fit becomes the bottleneck." },
-          { key: "b", text: "Tiny budgets (10 or fewer trials), highly-rugged or discrete loss surfaces, very high-dim search spaces, or trials so cheap that random's parallelism wins.", correct: true },
-          { key: "c", text: "When using TPE rather than a GP; TPE has weaker guarantees than random search." },
+          { key: "b", text: "Tiny budgets (≤10 trials), rugged/discrete loss surfaces, very high-dim spaces, or trials so cheap that random's parallelism just wins.", correct: true },
+          { key: "c", text: "Specifically when you are using TPE rather than a GP surrogate, because TPE carries strictly weaker guarantees than random search does." },
           { key: "d", text: "BHPO never under-performs random search; the surrogate's information accumulation makes it strictly better." }
         ]}
         trap={<>(a) is partly real (cubic GP) but the fix is TPE / Hyperband, not random. (c) is false — TPE has shown strong empirical results. (d) is the over-confident textbook reading.</>}
@@ -2313,8 +2313,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> async = worker finishes whenever it finishes. The order of incoming results is the order of surrogate updates.</>}
         options={[
           { key: "a", text: "Wait for all in-flight trials to return before refitting the surrogate; preserves sequential-BHPO semantics." },
-          { key: "b", text: "Refit on each return as it arrives; for the in-flight trials still running, use fantasy / kriging-believer imputation so they don't block surrogate updates.", correct: true },
-          { key: "c", text: "Only refit on the fastest 50% of trials; stragglers add stale information that biases the posterior." },
+          { key: "b", text: "Refit on each return as it arrives; for trials still in-flight, use fantasy/kriging-believer imputation so they don't block surrogate updates.", correct: true },
+          { key: "c", text: "Only refit the surrogate on the fastest 50% of trials, since the stragglers add stale information that ends up biasing the posterior." },
           { key: "d", text: "Disable the surrogate when stragglers are present; fall back to random search until all workers report." }
         ]}
         trap={<>(a) wastes idle workers. (c) drops legitimate signal. (d) over-reacts; surrogates handle async fine with fantasy imputation.</>}
@@ -2325,8 +2325,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> PI rewards probability, not magnitude. Predict the behavior.</>}
         options={[
           { key: "a", text: "Over-explores — PI's variance bonus is unbounded, so it picks the highest-sigma point regardless of mean." },
-          { key: "b", text: "Over-exploits — PI rewards any improvement equally, so it locks onto small marginal gains near the incumbent and stops exploring.", correct: true },
-          { key: "c", text: "Becomes equivalent to UCB with kappa=1 in the large-n limit, by a CLT argument." },
+          { key: "b", text: "Over-exploits — PI rewards any improvement equally, so it locks onto tiny marginal gains near the incumbent and stops exploring.", correct: true },
+          { key: "c", text: "It becomes exactly equivalent to UCB with kappa=1 in the large-n limit, via a central-limit-theorem argument on the scores." },
           { key: "d", text: "Diverges numerically because Phi(z) saturates at 1 and gradients vanish in the inner-loop optimization." }
         ]}
         trap={<>(a) flips PI's bias. (c) is fiction. (d) confuses sigmoid-saturation pathologies with PI's actual issue.</>}
@@ -2337,8 +2337,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> what fraction of HPs in a typical search space actually matter, and what does that imply for where BHPO spends compute?</>}
         options={[
           { key: "a", text: "All HPs matter roughly equally; the surrogate just learns the irrelevant ones have small lengthscales, no manual pruning needed." },
-          { key: "b", text: "A few HPs (LR, batch size, weight decay) usually dominate. A bloated space wastes the surrogate's capacity on irrelevant axes and slows convergence — prune aggressively.", correct: true },
-          { key: "c", text: "The acquisition function determines convergence; search-space design is a minor implementation detail." },
+          { key: "b", text: "A few HPs (LR, batch size, weight decay) usually dominate. A bloated space wastes surrogate capacity on irrelevant axes — prune hard.", correct: true },
+          { key: "c", text: "The acquisition function alone fully determines convergence here; search-space design is really just a very minor implementation detail." },
           { key: "d", text: "More HPs = more degrees of freedom = better optimum; never prune the search space pre-search." }
         ]}
         trap={<>(a) overstates GP lengthscale adaptation. (c) inverts the practitioner's experience. (d) is the over-confident over-parameterization fallacy.</>}
@@ -2348,10 +2348,10 @@ flowchart TD
         title="Q21 — Surrogate posterior collapse at observed points: feature or bug? (D)"
         scenario={<><em>Discriminating insight:</em> sigma goes to 0 at observed x. Is this the right behavior for a Bayesian surrogate over noisy training runs?</>}
         options={[
-          { key: "a", text: "Always a bug — the surrogate should retain uncertainty even at observed points to allow re-sampling under noise." },
+          { key: "a", text: "It is always a bug — the surrogate ought to retain its uncertainty even at observed points, in order to allow re-sampling under noise." },
           { key: "b", text: "Always a feature — observed points have known values, so the posterior should be a delta there." },
-          { key: "c", text: "Depends on noise: noise-free interpolation (sigma toward 0) is right when val-loss is deterministic; noisy GP (sigma toward noise-floor) is right when val-loss is stochastic due to seed / data-shuffle variance.", correct: true },
-          { key: "d", text: "Bug only if the kernel is RBF; Matern-5/2 naturally retains uncertainty at observations." }
+          { key: "c", text: "Depends on noise: sigma→0 interpolation fits deterministic val-loss; a noisy GP (sigma→noise-floor) fits stochastic val-loss from seed/shuffle variance.", correct: true },
+          { key: "d", text: "It is a bug only when the kernel happens to be RBF; the Matern-5/2 kernel naturally retains its uncertainty at the observed points." }
         ]}
         trap={<>(a) and (b) are false dichotomies. (d) is fiction — kernel choice doesn't change interpolation behavior at observed points without a noise term.</>}
         lens={<>(c). The right move is a noisy GP with a fitted noise variance — sigma at observed points collapses to the noise floor, not zero. Otherwise BHPO under-samples seed variance and reports an over-confident best.</>} />
@@ -2360,9 +2360,9 @@ flowchart TD
         title="Q22 — Inner-loop acquisition optimization. What does it actually solve? (C)"
         scenario={<><em>Discriminating insight:</em> 'maximize the acquisition function' implies an optimizer. What kind, and over what?</>}
         options={[
-          { key: "a", text: "A convex QP over the acquisition; closed-form solution via the GP's Cholesky factor." },
-          { key: "b", text: "A non-convex continuous (or mixed) optimization over the HP search space, typically solved by multistart L-BFGS / CMA-ES / random sampling + best-of-N. Cheap relative to a training run.", correct: true },
-          { key: "c", text: "A discrete enumeration over the trials so far — pick the existing trial with the highest acquisition for the next refit." },
+          { key: "a", text: "A convex quadratic program over the acquisition, with a closed-form solution obtained directly via the GP's cached Cholesky factor." },
+          { key: "b", text: "A non-convex continuous (or mixed) optimization over the HP space, solved by multistart L-BFGS / CMA-ES / best-of-N sampling. Cheap vs a training run.", correct: true },
+          { key: "c", text: "A discrete enumeration over all of the trials run so far — you pick the existing trial that has the highest acquisition value for the next refit." },
           { key: "d", text: "A reinforcement-learning policy trained to maximize cumulative regret across many BHPO problems." }
         ]}
         trap={<>(a) confuses GP fitting (which has linear algebra) with acquisition optimization (which doesn't). (c) confuses re-evaluation with picking a new x. (d) describes learned acquisitions (a research area), not the practical inner loop.</>}
@@ -2372,9 +2372,9 @@ flowchart TD
         title="Q23 — You have prior beliefs (LR ~ 1e-3, weight decay ~ 1e-4). Where do they go? (E)"
         scenario={<><em>Discriminating insight:</em> name the BHPO-level component that should consume prior beliefs.</>}
         options={[
-          { key: "a", text: "Hard-code them as the first trial of the warm-up — the surrogate will inherit them as a strong anchor." },
-          { key: "b", text: "Use a narrower search-space range centered on the prior, and / or supply a Gaussian / log-Normal prior on each HP so warm-up sampling and TPE / GP search both pull toward it.", correct: true },
-          { key: "c", text: "Bake them into the GP's kernel lengthscale via the marginal-likelihood prior." },
+          { key: "a", text: "Hard-code them as the very first trial of the warm-up phase, and the surrogate will then inherit them as a single strong anchor point." },
+          { key: "b", text: "Narrow the search range around the prior, and/or supply a Gaussian/log-Normal prior per HP so warm-up sampling and TPE/GP search both pull toward it.", correct: true },
+          { key: "c", text: "Simply bake the prior beliefs into the GP's kernel lengthscale, by way of the marginal-likelihood prior over hyperparameters." },
           { key: "d", text: "Skip the warm-up entirely — your prior beliefs are already the equivalent of 10 warm-up trials." }
         ]}
         trap={<>(a) gives one trial of signal then noise. (c) is too subtle a place for explicit beliefs. (d) skips information aggregation; one prior is not 10 noisy trials.</>}
@@ -2384,9 +2384,9 @@ flowchart TD
         title="Q24 — Mixing exploit-heavy and explore-heavy strategies across the budget. Why might you do that? (B)"
         scenario={<><em>Discriminating insight:</em> early vs late in a fixed budget — what's the right exploit/explore split, and why does it shift?</>}
         options={[
-          { key: "a", text: "Always keep the same acquisition; switching mid-run invalidates the surrogate's convergence guarantees." },
-          { key: "b", text: "Explore-heavy early (UCB with large kappa or EI with the surrogate still wide), exploit-heavy late (UCB with small kappa or pure-greedy on mu) once the surrogate's narrowed in on the basin.", correct: true },
-          { key: "c", text: "Always explore-heavy — the goal of HPO is to map the surface, not to find the optimum." },
+          { key: "a", text: "Always keep exactly the same acquisition function; switching it mid-run would invalidate the surrogate's formal convergence guarantees." },
+          { key: "b", text: "Explore-heavy early (large-kappa UCB, wide surrogate), exploit-heavy late (small-kappa UCB or greedy on mu) once the surrogate has narrowed on the basin.", correct: true },
+          { key: "c", text: "You should stay always explore-heavy, because the real goal of HPO is to map out the whole surface rather than to find the single optimum." },
           { key: "d", text: "Always exploit-heavy — the surrogate's job is to find the best point fast, not to characterize uncertainty." }
         ]}
         trap={<>(a) appeals to nonexistent guarantees. (c) confuses HPO with active learning. (d) is the greedy fallacy — you'll miss the better basin.</>}
@@ -2396,10 +2396,10 @@ flowchart TD
         title="Q25 — One BHPO sentence to senior leadership. What's the load-bearing claim? (A)"
         scenario={<><em>Discriminating insight:</em> compress BHPO to the one claim that distinguishes it from random search and from grid search. Avoid jargon a non-MLE PM would miss.</>}
         options={[
-          { key: "a", text: "'BHPO is guaranteed to find the global optimum; random search and grid search are not.'" },
-          { key: "b", text: "'BHPO uses a cheap model of past trial results to pick smarter next-trial hyperparameters — turning each expensive training run into a posterior update instead of an isolated guess.'", correct: true },
+          { key: "a", text: "'BHPO is mathematically guaranteed to find the true global optimum, whereas random search and grid search simply are not.'" },
+          { key: "b", text: "'BHPO uses a cheap model of past results to pick smarter next hyperparameters — turning each expensive run into a posterior update, not an isolated guess.'", correct: true },
           { key: "c", text: "'BHPO replaces SGD with Bayesian inference over model weights, yielding calibrated uncertainty in predictions.'" },
-          { key: "d", text: "'BHPO is grid search but with adaptive grid spacing chosen by a neural network.'" }
+          { key: "d", text: "'BHPO is essentially just grid search, but with an adaptive grid spacing that gets chosen for you by a small neural network.'" }
         ]}
         trap={<>(a) over-claims convergence — BHPO has no global-optimum guarantee in finite trials. (c) confuses HPO with Bayesian deep learning. (d) is a folk-model description that gets the architecture wrong.</>}
         lens={<>(b). The load-bearing claim is information accumulation across trials. Random search throws information away each trial; BHPO compounds it via the surrogate. That's the whole pitch — and it's what determines when BHPO is worth its complexity (expensive trials, smooth-ish surfaces, 50 or more trial budgets).</>}
