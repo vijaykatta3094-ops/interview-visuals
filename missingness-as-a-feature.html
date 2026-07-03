@@ -2242,7 +2242,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what object does the model gain access to that pure imputation hides? You are reviewing a feature-engineering PR.</>}
         options={[
           {key:"a", text:"A per-row scalar equal to the count of missing entries in that row, so the model can downweight low-quality rows."},
-          {key:"b", text:"A per-column binary feature is_missing_X added alongside the imputed column, so the model can learn the effect of missingness separately from the value.", correct:true},
+          {key:"b", text:"A per-column binary is_missing_X added beside the imputed column, so the model learns the effect of missingness separately from the value.", correct:true},
           {key:"c", text:"A per-row vector of imputed-vs-real flags concatenated as a single one-hot, sized by the row's pattern of NaNs."},
           {key:"d", text:"A global binary feature any_missing that fires when any cell in the row is NaN, so the model knows the row is partial."},
         ]}
@@ -2290,9 +2290,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what does native NaN handling buy you versus what does it leave on the table? You are deciding whether to add indicators when your model is already a gradient-boosted tree.</>}
         options={[
           {key:"a", text:"No — XGBoost learns a default direction per split for NaN, which is mathematically equivalent to a global per-column indicator."},
-          {key:"b", text:"Mostly no — XGBoost's per-split default direction captures the same information, but explicit indicators still help shallow trees, audit, and feature-importance attribution.", correct:true},
+          {key:"b", text:"Mostly no — the per-split default direction captures most of it, but explicit indicators still help shallow trees, audits, and feature-importance.", correct:true},
           {key:"c", text:"Yes — XGBoost's NaN handling is heuristic and ignored when min_child_weight is large, so always add indicators."},
-          {key:"d", text:"Yes — XGBoost's NaN handling only applies to integer columns; floats need the explicit indicator."},
+          {key:"d", text:"Yes — XGBoost's native NaN handling only applies to integer columns, so any float columns will still need the explicit indicator added."},
         ]}
         trap={<>(a) overclaims equivalence — per-split direction is per-split, not per-column, and feature-importance reports lose the missingness signal. (c) and (d) invent constraints that do not exist in XGBoost.</>}
         lens={<>XGBoost's default direction per split absorbs most of the indicator's predictive value. But an explicit indicator (1) survives shallow trees (max_depth=3), (2) appears in SHAP/gain reports as its own line item, and (3) helps if you later switch to a linear model.</>}
@@ -2321,9 +2321,9 @@ flowchart LR
         title="Q6 — Which column should NOT get an indicator?"
         scenario={<><em>Discriminating insight:</em> what kind of column's missingness pattern is leakage rather than signal? You are scanning a feature catalog for a default-prediction model.</>}
         options={[
-          {key:"a", text:"A column with very few missing entries (less than 1 percent), because the indicator's variance is too low to be useful."},
-          {key:"b", text:"A column whose missingness is determined by the label outcome itself (e.g., default_date is null exactly when the customer has not defaulted), because the indicator would be a label leak.", correct:true},
-          {key:"c", text:"A column that already passes through a tree-based model, because the model handles missingness natively."},
+          {key:"a", text:"A column with very few missing entries (under 1 percent of rows), because the resulting indicator's variance is simply too low to ever be useful."},
+          {key:"b", text:"A column whose missingness is set by the label itself (default_date is null exactly when the customer hasn't defaulted) — the indicator is a label leak.", correct:true},
+          {key:"c", text:"A column that already passes through a tree-based model of some kind, because that model handles the missingness natively on its own."},
           {key:"d", text:"A column with high cardinality, because the indicator interacts badly with one-hot encoding."},
         ]}
         trap={<>(a) low-variance indicators are usually harmless, not dangerous. (c) is true but is "not needed," not "should not." (d) is irrelevant — indicators are binary and don't interact with cardinality.</>}
@@ -2338,9 +2338,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what kind of information must not flow from test to train? You are building a sklearn pipeline.</>}
         options={[
           {key:"a", text:"Train+test, because indicators are deterministic functions of the input and contain no learnable parameters that could leak."},
-          {key:"b", text:"Train only — the set of columns to instrument is itself a parameter learned from training, and using test rows to choose it leaks information about the test distribution.", correct:true},
+          {key:"b", text:"Train only — the set of columns to instrument is itself learned from training, and using test rows to choose it leaks the test distribution.", correct:true},
           {key:"c", text:"Train+test, but only the column list; the indicator values must be computed per row regardless of split."},
-          {key:"d", text:"Either is fine because the indicator is non-parametric and binary."},
+          {key:"d", text:"Either train-only or train+test is fine here, because the indicator is fully non-parametric and simply binary per cell."},
         ]}
         trap={<>(a) and (d) miss that the column-list itself is a learned artifact. (c) is a half-truth: the column list IS the learned part, and including test columns leaks.</>}
         lens={<>If a column is missing only in test, including it in the indicator schema means your test indicator fires on a feature the model has never seen during training — and worse, you have leaked test distribution information into the train-time pipeline. Fit the schema on train, apply to test.</>}
@@ -2369,9 +2369,9 @@ flowchart LR
         title="Q9 — Indicator fires in test but never in train. What does the model do?"
         scenario={<><em>Discriminating insight:</em> how does a model handle a feature that was always zero at training time? You are auditing a serving-time prediction.</>}
         options={[
-          {key:"a", text:"The model raises an exception because the feature distribution shifted outside the training support."},
-          {key:"b", text:"The model treats the indicator as a constant zero feature; its coefficient is whatever the regularizer settled on (often near zero), and the prediction is uninformative.", correct:true},
-          {key:"c", text:"The model automatically falls back to the imputed value and ignores the indicator at serving time."},
+          {key:"a", text:"The model raises an exception at serving time, because the feature's distribution has shifted outside of the training support entirely."},
+          {key:"b", text:"The model treats it as a constant-zero feature; its coefficient is whatever the regularizer settled on (often ~0), so the prediction is uninformative.", correct:true},
+          {key:"c", text:"The model automatically falls back to using the imputed value instead and then ignores the indicator entirely at serving time."},
           {key:"d", text:"The model degrades gracefully because most tabular models calibrate per-feature distribution shift internally."},
         ]}
         trap={<>(a) overstates — models silently accept the feature. (c) invents a fallback mechanism. (d) is the comforting but wrong claim that should be challenged.</>}
@@ -2385,9 +2385,9 @@ flowchart LR
         title="Q10 — Should you also impute the indicator? It's never NaN."
         scenario={<><em>Discriminating insight:</em> what would it even mean to impute a 0/1 indicator? You are reviewing a junior engineer's pipeline that has SimpleImputer applied to the indicator column.</>}
         options={[
-          {key:"a", text:"Yes — every feature must be imputed for consistency; the indicator column should default to 0 if NaN."},
-          {key:"b", text:"No — the indicator is constructed FROM the missingness, so by construction it has no NaN of its own; imputing it is a no-op at best and a code smell at worst.", correct:true},
-          {key:"c", text:"Yes — but with mode imputation, not mean, since the indicator is binary."},
+          {key:"a", text:"Yes — every single feature must be imputed for pipeline consistency, and the indicator column itself should default to 0 whenever it is NaN."},
+          {key:"b", text:"No — the indicator is constructed FROM the missingness, so it has no NaN of its own; imputing it is a no-op at best, a code smell at worst.", correct:true},
+          {key:"c", text:"Yes — but you should use mode imputation rather than mean imputation, precisely because the indicator column is binary."},
           {key:"d", text:"No — but only because it would distort the mean of the indicator and bias the coefficient."},
         ]}
         trap={<>(a) and (c) treat the indicator as if it were a normal column with missingness. (d) misidentifies the reason for not imputing.</>}
@@ -2401,10 +2401,10 @@ flowchart LR
         title="Q11 — Indicators on a neural net for tabular data. Best practice?"
         scenario={<><em>Discriminating insight:</em> how do you feed a binary indicator into a tabular MLP without making it dominate? You are designing the input layer.</>}
         options={[
-          {key:"a", text:"Concatenate the indicator as a raw 0/1 column alongside the (z-scored) numeric features; the network learns to weight it via the first linear layer.", correct:true},
+          {key:"a", text:"Concatenate the raw 0/1 indicator alongside the z-scored numeric features; the network weights it via the first linear layer.", correct:true},
           {key:"b", text:"Embed the indicator into a 32-dim vector via an embedding layer, since binary categorical features always need embeddings."},
           {key:"c", text:"Multiply the indicator into a gating mask over the entire input vector, zeroing out features when the indicator fires."},
-          {key:"d", text:"Pass the indicator through a sigmoid before concatenation to keep it bounded."},
+          {key:"d", text:"Pass the indicator through a sigmoid activation before concatenation, purely in order to keep its value nicely bounded."},
         ]}
         trap={<>(b) over-engineers a one-bit feature. (c) is one-of-many gating ideas but not the default. (d) is nonsensical — sigmoid of 0/1 just compresses without help.</>}
         lens={<>For tabular MLPs, the simplest correct thing is to concatenate the raw 0/1 indicator alongside normalized numerics. The first linear layer can scale it appropriately. Save embedding tricks for high-cardinality categoricals where they actually help.</>}
@@ -2418,8 +2418,8 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what monitoring signal tells you the indicator's meaning is changing? You are operationalizing the model.</>}
         options={[
           {key:"a", text:"Coefficient stability — refit the model weekly and alert on coefficient changes greater than 2 sigma."},
-          {key:"b", text:"Per-column missing-rate drift — alert when the fraction of missing in any column shifts materially versus the training distribution.", correct:true},
-          {key:"c", text:"Test AUC drift — only AUC reflects whether indicators are still helping."},
+          {key:"b", text:"Per-column missing-rate drift — alert when the missing fraction in any column shifts materially from the training distribution.", correct:true},
+          {key:"c", text:"Test AUC drift — only the AUC metric truly reflects whether the indicators are still helping the model at all."},
           {key:"d", text:"Indicator-target correlation — refit on every batch to capture changing label dependence."},
         ]}
         trap={<>(a) and (d) require labels you do not have at serving time. (c) is downstream and slow; the per-column missing-rate is the earliest input-side signal.</>}
@@ -2449,10 +2449,10 @@ flowchart LR
         title="Q14 — Pattern-mixture vs indicator method. Which solves what?"
         scenario={<><em>Discriminating insight:</em> what does a pattern-mixture model do that a single indicator cannot? You are reading a paper that uses both.</>}
         options={[
-          {key:"a", text:"They are the same thing under different names; both add indicators and fit one joint model."},
-          {key:"b", text:"Pattern-mixture fits a SEPARATE model per missingness pattern and weights them by pattern frequency; the indicator method fits ONE model and lets it route via the indicator.", correct:true},
-          {key:"c", text:"Pattern-mixture imputes, the indicator method does not — they apply at different pipeline stages."},
-          {key:"d", text:"Pattern-mixture is a Bayesian technique while the indicator method is frequentist."},
+          {key:"a", text:"They are really the same thing under two different names; both simply add indicators and then fit a single joint model."},
+          {key:"b", text:"Pattern-mixture fits a SEPARATE model per missingness pattern, weighted by frequency; the indicator method fits ONE model routing via the indicator.", correct:true},
+          {key:"c", text:"Pattern-mixture actually imputes while the indicator method does not — the two therefore apply at completely different pipeline stages."},
+          {key:"d", text:"Pattern-mixture is fundamentally a Bayesian technique, whereas the indicator method is a purely frequentist one."},
         ]}
         trap={<>(a) conflates two related but distinct methods. (c) misstates both — both can coexist with imputation. (d) invents a frequentist/Bayesian split.</>}
         lens={<>Pattern-mixture: P(Y | X) = sum_pattern P(Y | X, R=pattern) P(R=pattern). One sub-model per pattern; useful for MNAR analysis. Indicator method: ONE model with R as a feature; useful for prediction. The latter is a constrained version of the former where the patterns share parameters except for the indicator coefficient.</>}
@@ -2467,8 +2467,8 @@ flowchart LR
         options={[
           {key:"a", text:"Add a separate is_missing_occupation column AND drop the row from the one-hot — the indicator replaces the one-hot for missing rows so the two encodings never coexist."},
           {key:"b", text:"Add a 'missing' level to the one-hot encoding and ALSO add a separate is_missing_occupation column for ergonomic redundancy — defense in depth across the schema."},
-          {key:"c", text:"Either add a separate is_missing_occupation indicator or add a 'missing' level to the one-hot — the two are mathematically equivalent for a linear model and either is fine; pick the one your pipeline supports more cleanly.", correct:true},
-          {key:"d", text:"Drop the missing rows entirely and let downstream imputation handle the rest."},
+          {key:"c", text:"Either a separate is_missing_occupation indicator or a 'missing' one-hot level works — they are equivalent for a linear model; pick whichever your pipeline supports more cleanly.", correct:true},
+          {key:"d", text:"Simply drop all the missing rows entirely and then let the downstream imputation step handle whatever remains."},
         ]}
         trap={<>(a) invents a coexistence rule that does not exist — both encodings naturally handle the missing case independently. (b) duplicates the same 0/1 information twice, creating exact collinearity. (d) is the leakage-risky option.</>}
         lens={<>The two encodings are mathematically equivalent for a linear model: a 'missing' one-hot level and a separate is_missing indicator both add the same 0/1 column to the design matrix. Pick whichever is cleaner in your pipeline — separate indicators are easier to name globally; a 'missing' OneHotEncoder level is one-liner ergonomic in sklearn.</>}
@@ -2481,10 +2481,10 @@ flowchart LR
         title="Q16 — Adding an indicator inflates AUC by 0.003 on validation. Ship it?"
         scenario={<><em>Discriminating insight:</em> what makes a small AUC lift trustworthy? You are deciding whether to merge a one-liner that added 15 indicator columns.</>}
         options={[
-          {key:"a", text:"Yes — any positive lift is worth shipping when the cost is one line of code and a handful of columns."},
-          {key:"b", text:"Maybe — check that the lift survives stratified CV across multiple seeds, that the indicator coefficients are stable, and that no indicator column is suspiciously label-correlated.", correct:true},
+          {key:"a", text:"Yes — any positive lift at all is worth shipping when the total cost is just one line of code and a mere handful of columns."},
+          {key:"b", text:"Maybe — check the lift survives stratified CV across seeds, the indicator coefficients are stable, and no indicator is suspiciously label-correlated.", correct:true},
           {key:"c", text:"No — a 0.003 lift is below the noise floor for AUC and should not be trusted regardless of CV setup."},
-          {key:"d", text:"Yes — but reduce the regularization first to ensure the indicators are not being penalized."},
+          {key:"d", text:"Yes — but first reduce the regularization strength, to make sure the new indicator columns are not being penalized away."},
         ]}
         trap={<>(a) is too eager — could be label leakage. (c) is too dismissive — 0.003 IS detectable with enough rows. (d) fiddles with the wrong knob.</>}
         lens={<>Small lifts demand stronger validation: stratified k-fold, multiple seeds, leakage check on each indicator. The indicator method's typical cost is so low (one line, few columns) that the bar is mostly "is the signal real?" — and the answer comes from CV stability and a label-correlation audit.</>}
@@ -2497,10 +2497,10 @@ flowchart LR
         title="Q17 — Indicators and SHAP feature-importance reports."
         scenario={<><em>Discriminating insight:</em> how does adding indicators change feature attribution? You are presenting model explanations to a non-ML stakeholder.</>}
         options={[
-          {key:"a", text:"SHAP cannot attribute to binary indicators; the values collapse to zero in tree explainer."},
-          {key:"b", text:"SHAP correctly attributes importance to indicators; high attribution on is_missing_X is a strong signal that missingness — not the value — drives the prediction.", correct:true},
+          {key:"a", text:"SHAP simply cannot attribute importance to binary indicators; their values just collapse to zero inside the tree explainer."},
+          {key:"b", text:"SHAP attributes importance to indicators correctly; high attribution on is_missing_X signals that missingness — not the value — drives the prediction.", correct:true},
           {key:"c", text:"Indicators always dominate SHAP rankings because their binary nature gives them outsized marginal contributions."},
-          {key:"d", text:"SHAP requires the indicator and the original column to be merged into one feature for valid attribution."},
+          {key:"d", text:"SHAP requires that the indicator and the original source column be merged into a single feature before any valid attribution is possible."},
         ]}
         trap={<>(a) is false — SHAP handles binaries fine. (c) is the over-claim. (d) misdescribes SHAP's input requirements.</>}
         lens={<>SHAP attributes per-feature contribution to the prediction marginal. Indicators get their own row in the report. If is_missing_X has high mean absolute SHAP, that tells you the FACT of missingness — not the imputed value — drives the model's decision. This is exactly the explainability win the indicator method delivers.</>}
@@ -2530,9 +2530,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> in which step of the cross-validation loop does the indicator schema get fit? You are wiring up a pipeline.</>}
         options={[
           {key:"a", text:"Once, on the full dataset before CV begins — the schema is a structural property of the data."},
-          {key:"b", text:"Inside the pipeline, fit on each training fold and applied to its validation fold; CV with sklearn Pipeline handles this automatically.", correct:true},
+          {key:"b", text:"Inside the pipeline: fit on each training fold, applied to its validation fold; sklearn Pipeline + CV handles this automatically.", correct:true},
           {key:"c", text:"On the validation fold of each split, because the schema should reflect what the model will see at evaluation."},
-          {key:"d", text:"On a held-out 'schema-only' split, separate from train and validation."},
+          {key:"d", text:"On a separate held-out 'schema-only' data split, kept entirely distinct from both the train and the validation folds."},
         ]}
         trap={<>(a) leaks: validation rows informed the schema. (c) reverses the leak direction. (d) over-engineers.</>}
         lens={<>The indicator schema (which columns get instrumented) is a fitted artifact of training data. In sklearn, wrapping the indicator step inside Pipeline and calling cross_val_score does this correctly: schema fit per fold, applied to that fold's validation. Manually pre-fitting on the full dataset is a classic leakage bug.</>}
@@ -2545,10 +2545,10 @@ flowchart LR
         title="Q20 — Why might indicators HURT calibration?"
         scenario={<><em>Discriminating insight:</em> what kind of subgroup imbalance can indicators expose that pure imputation hides? You are checking calibration of a fraud classifier.</>}
         options={[
-          {key:"a", text:"Indicators cannot affect calibration because they are independent of the model output's monotone scaling."},
-          {key:"b", text:"Indicators carve out subgroups (e.g., imputed rows) that may have different base rates than the population; if rare, the model's probabilities for those subgroups are estimated with high variance and miscalibrate.", correct:true},
-          {key:"c", text:"Indicators force the model to output binary probabilities, breaking calibration."},
-          {key:"d", text:"Indicators always improve calibration by separating high-uncertainty rows."},
+          {key:"a", text:"Indicators simply cannot affect calibration at all, because they are independent of the model output's monotone scaling function."},
+          {key:"b", text:"Indicators carve out subgroups (imputed rows) with different base rates; if rare, their probability estimates have high variance and miscalibrate.", correct:true},
+          {key:"c", text:"Indicators force the model to only ever output binary 0/1 probabilities, which fundamentally breaks its calibration."},
+          {key:"d", text:"Indicators will always improve the calibration, specifically by cleanly separating out the high-uncertainty rows from the rest."},
         ]}
         trap={<>(a) ignores subgroup variance. (c) misunderstands what binary features do. (d) is the over-claim.</>}
         lens={<>The model now has a small subgroup (imputed rows) whose probability estimates come from fewer training examples. If the base rate in that subgroup differs from the overall rate, the model's calibrated probability for those rows can drift. Stratified calibration audits or isotonic regression per subgroup is the fix.</>}
@@ -2562,9 +2562,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what does a constant-1 indicator do to learning? You discover that a feature was missing for every row in this training period.</>}
         options={[
           {key:"a", text:"The model learns a strong positive coefficient on the indicator because it perfectly explains the training labels."},
-          {key:"b", text:"The indicator is rank-deficient with the intercept (always 1), is absorbed into the intercept by regularization, and provides zero signal; remove it.", correct:true},
-          {key:"c", text:"The model raises an error because variance is zero."},
-          {key:"d", text:"The indicator generalizes perfectly because it captures the entire training distribution."},
+          {key:"b", text:"The indicator is rank-deficient with the intercept (always 1), gets absorbed into it by regularization, and adds zero signal; remove it.", correct:true},
+          {key:"c", text:"The model raises a hard error at fit time, specifically because the feature's variance is exactly zero."},
+          {key:"d", text:"The indicator generalizes perfectly to new data, precisely because it captures the entire training distribution in one column."},
         ]}
         trap={<>(a) and (d) confuse 'constant value' with 'perfect predictor'. (c) overstates — sklearn won't error, just produces a useless coefficient.</>}
         lens={<>A constant feature is multicollinear with the intercept. Its coefficient is unidentified; in practice regularization shrinks it to zero and the intercept absorbs its mean. Worse, at serving time when the column starts to be observed, the indicator suddenly flips to 0 — and the model has never seen that case.</>}
@@ -2577,8 +2577,8 @@ flowchart LR
         title="Q22 — Indicators vs Iterative Imputer. Complementary or redundant?"
         scenario={<><em>Discriminating insight:</em> what does each approach contribute that the other does not? You are choosing between (a) MICE + no indicator and (b) median + indicator.</>}
         options={[
-          {key:"a", text:"They are redundant — MICE produces conditional draws that already encode the missingness pattern."},
-          {key:"b", text:"They are complementary — MICE gives better imputed VALUES, indicators expose the missingness PATTERN, and using both usually beats either alone for prediction.", correct:true},
+          {key:"a", text:"They are entirely redundant — MICE produces conditional draws that already fully encode the missingness pattern on their own."},
+          {key:"b", text:"Complementary — MICE gives better imputed VALUES, indicators expose the missingness PATTERN, and using both usually beats either alone.", correct:true},
           {key:"c", text:"MICE strictly dominates the indicator method because it is a more principled probabilistic approach."},
           {key:"d", text:"Indicators strictly dominate MICE because they preserve the pattern and MICE noise is unhelpful."},
         ]}
@@ -2593,8 +2593,8 @@ flowchart LR
         title="Q23 — A column has 30 percent missing in train and 80 percent in serving. What breaks?"
         scenario={<><em>Discriminating insight:</em> what kind of distribution shift does indicator method amplify versus dampen? You are diagnosing a performance regression in prod.</>}
         options={[
-          {key:"a", text:"Nothing breaks — the indicator is already binary and the model handles any rate of 1s gracefully."},
-          {key:"b", text:"The indicator's mean shifts from 0.3 to 0.8, moving the model's effective intercept far from training and producing systematic prediction bias on the new rows.", correct:true},
+          {key:"a", text:"Nothing at all breaks here — the indicator is already binary, and the model handles any incoming rate of 1s completely gracefully."},
+          {key:"b", text:"The indicator's mean shifts 0.3→0.8, moving the effective intercept far from training and producing systematic prediction bias on new rows.", correct:true},
           {key:"c", text:"The imputed value collapses to a constant because most rows have NaN, which fixes the indicator-related bias."},
           {key:"d", text:"The model autocalibrates because the indicator's distribution is a sufficient statistic for the shift."},
         ]}
@@ -2610,9 +2610,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what kind of indicator on a time-series feature is leakage? You are forecasting demand from a partially observed daily-sales series.</>}
         options={[
           {key:"a", text:"Any indicator on a time-series feature is leakage because future missingness encodes future absence."},
-          {key:"b", text:"An indicator computed from is_missing_today is fine; an indicator like is_missing_in_next_7_days is leakage because it uses future information at prediction time.", correct:true},
-          {key:"c", text:"Indicators are exempt from leakage rules because they are binary."},
-          {key:"d", text:"Only categorical indicators can leak; numeric indicators are always safe."},
+          {key:"b", text:"An is_missing_today indicator is fine; an is_missing_in_next_7_days one leaks, because it uses future information at prediction time.", correct:true},
+          {key:"c", text:"Indicators are entirely exempt from the usual leakage rules, simply on the grounds that they are binary features."},
+          {key:"d", text:"Only categorical-derived indicators can ever leak; indicators built from numeric columns are always completely safe."},
         ]}
         trap={<>(a) overgeneralizes — past-only indicators are fine. (c) and (d) misunderstand leakage.</>}
         lens={<>Leakage is about temporal information availability, not about the type of feature. Any indicator constructed from information that won't be available at prediction time leaks. The fix is the same as for all time-series features: respect the time cutoff when constructing the indicator.</>}
@@ -2626,9 +2626,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> can the model learn from the indicator without a fill value behind it? You are running an ablation that includes only the indicators and drops the imputed columns.</>}
         options={[
           {key:"a", text:"No — gradient-based models cannot accept NaN inputs, so the imputed column must exist regardless of whether the indicator is the load-bearing feature."},
-          {key:"b", text:"Yes — the indicators alone are a valid feature set; the model just loses the imputed-value information and underperforms by whatever the value carries.", correct:true},
-          {key:"c", text:"No — the model would predict the mean of the target for every row with a fired indicator."},
-          {key:"d", text:"Yes, but only for tree models; linear models require an imputed column."},
+          {key:"b", text:"Yes — indicators alone are a valid feature set; the model just loses the imputed-value information and underperforms by whatever the value carries.", correct:true},
+          {key:"c", text:"No — the model would simply predict the mean of the target for every single row where the indicator has fired."},
+          {key:"d", text:"Yes, but this only works for tree-based models; linear models will still strictly require an imputed value column to exist."},
         ]}
         trap={<>(a) confuses "NaN cannot pass through" with "imputation must remain a feature." You can drop the imputed column entirely if you keep only indicators. (c) misunderstands what the model does without the value. (d) invents an asymmetry.</>}
         lens={<>The indicators are clean 0/1 features and feed cleanly into any model. The ablation tells you what fraction of the win came from missingness PATTERN vs imputed VALUE. If indicator-only beats no-indicator-with-impute, your signal is mostly pattern. If imputed-only beats indicator-only, it is mostly value. The two together usually beat both.</>}
