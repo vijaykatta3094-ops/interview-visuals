@@ -2459,7 +2459,7 @@ flowchart TB
         title="Q23 — MI between two features (feature-to-feature, target-blind)"
         scenario={<><em>Discriminating insight:</em> you want to detect redundant features by computing pairwise MI between features while setting Y aside. What does a high pairwise MI tell you?</>}
         options={[
-          {key:"a", text:"The two features carry redundant information about each other; keeping both adds parameter cost without improving model capacity for predicting Y."},
+          {key:"a", text:"The two features carry redundant information about each other; keeping both adds parameter cost without improving model capacity for predicting Y.", correct:true},
           {key:"b", text:"The two features are jointly more informative about Y than either alone, by linearity of the chain rule for MI."},
           {key:"c", text:"High pairwise MI between features means high collinearity which destabilizes any linear model's coefficients regardless of Y."},
           {key:"d", text:"High pairwise MI is statistically expected under the null; only target-conditional MI tells you anything actionable."},

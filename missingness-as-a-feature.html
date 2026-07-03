@@ -2273,7 +2273,7 @@ flowchart LR
         title="Q3 — Under which regime does the indicator carry the LEAST signal?"
         scenario={<><em>Discriminating insight:</em> which Rubin regime corresponds to "missingness is independent of everything"? You are deciding whether to bother adding indicators on a clean MCAR dataset.</>}
         options={[
-          {key:"a", text:"MCAR — by definition the missingness indicator is independent of every feature and the target, so it has no predictive content."},
+          {key:"a", text:"MCAR — by definition the missingness indicator is independent of every feature and the target, so it has no predictive content.", correct:true},
           {key:"b", text:"MAR — because the dependence is mediated through observed features, the indicator is redundant once those features are in the model."},
           {key:"c", text:"MNAR — the missingness depends on the unobserved value, so the model cannot recover the dependence through an indicator anyway."},
           {key:"d", text:"It is always informative because the indicator is a strict superset of the column's information."},
