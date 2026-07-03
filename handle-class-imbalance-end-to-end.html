@@ -1467,6 +1467,392 @@ const App = () => (
         <VIS.Tag color="blue">auprc-vs-auroc-for-imbalanced-data</VIS.Tag>
       </p>
     </VIS.Section>
+    <VIS.Section id="sec-drill" title="Re-run the interview — trap drills">
+      <p>
+        Twenty-two problems that re-run this interview the senior way: reason across data / algorithm / evaluation levels, keep calibration intact, and reach for SMOTE last if ever. The scenario throughout: Prime Video add-on subscribe classifier, ~2% positive, plenty of positives in absolute count. Decoys are defensible somewhere.
+      </p>
+
+      {/* B1 — the opening move: priority order */}
+      <VIS.TrapProblem
+        id="hci-p1"
+        difficulty="medium"
+        title="The interviewer says '2% subscribe, handle it.' Your first lever?"
+        scenario={<>The candidate who scored 2.8/5 opened with "hybrid over/under-sample to 50/50, then tune the threshold." You know rebalancing has a cost. What is the senior first move for a 2%-positive tabular classifier with abundant positives?</>}
+        options={[
+          {key:"a", text:"Class-weighted cross-entropy (pos_weight ≈ 49) — one knob, no synthetic data, and it preserves calibration up to a known correction.", correct:true},
+          {key:"b", text:"Oversample the minority to 50/50 first; a balanced training set is the prerequisite that every downstream fix depends on."},
+          {key:"c", text:"SMOTE the minority immediately — synthetic interpolation is strictly better than duplication and is the standard imbalance remedy."},
+          {key:"d", text:"Switch the model to one that is robust to imbalance (e.g. a tree ensemble), since the fix belongs in the model family, not the loss."},
+        ]}
+        trap={<>(b) is the exact 2.8/5 move: it treats "balance the classes" as a prerequisite rather than a choice with a calibration cost. Balancing to 50/50 sets the training prior to 0.5 against a true 0.02 — every predicted probability inflates, and the model you ship is miscalibrated unless you correct it.</>}
+        lens={<>The senior arc is loss-first, data-last: (1) class-weighted CE — cheapest, correctable, no fabricated points; (2) focal loss if easy negatives swamp the gradient; (3) SMOTE only if the minority MANIFOLD is genuinely undersampled (rare when positives are plentiful). Data-level fixes move the base rate and break calibration; loss-level fixes leave the data alone. Start where the cost is lowest and reversible.</>}
+        stretch={<>Why does "abundant positives in absolute count" specifically argue AGAINST SMOTE, even at 2%?</>}
+      />
+
+      {/* C1 — the calibration mechanism (the candidate's mistake) */}
+      <VIS.TrapProblem
+        id="hci-p2"
+        difficulty="hard"
+        title="After balancing to 50/50, predicted subscribe-rate averages 48%"
+        scenario={<>A teammate oversamples 2%→50%, trains, and the model's average predicted P(subscribe) across live traffic is ~48% — against a true base rate of ~2%. Precision in the promo campaign collapses. They suspect the model "learned to over-predict from noise."</>}
+        options={[
+          {key:"a", text:"Calibration shift by construction: a 50% training prior inflates the odds ~49×, so predictions bow above the diagonal. Recalibrate, or don't rebalance.", correct:true},
+          {key:"b", text:"The model overfit the duplicated minority rows; adding dropout and weight decay will pull the average prediction back toward 2%."},
+          {key:"c", text:"The threshold is wrong: predictions are fine, but 0.5 is too low for this model, so raising the decision threshold fixes the inflated rate."},
+          {key:"d", text:"The features drifted between training and serving; recomputing them on live traffic will realign the predicted rate with the true base rate."},
+        ]}
+        trap={<>(c) confuses the DECISION threshold with the PROBABILITIES: moving the threshold changes which rows are flagged, not the miscalibrated probability values themselves — and anything downstream that consumes P(subscribe) as a probability (expected-value ranking, bidding, promo budgeting) still sees ~48% where the truth is 2%.</>}
+        lens={<>Resampling changes the empirical prior, and the model dutifully learns the Bayes posterior under that new prior — so odds shift by (π_train/(1−π_train))·((1−π_true)/π_true), about 49× when you go 2%→50%. The reliability diagram bows above the diagonal. Fixes: the Saerens 2002 prior correction q = p·a/(p·a + (1−p)·b), or Platt/isotonic fit on a held-out set drawn from the TRUE distribution. The cleanest fix is to not create the problem — class-weighting distorts probabilities too, but by exactly the weight ratio, so it inverts analytically.</>}
+        stretch={<>Class-weighting also shifts the probabilities. Why is its shift "correctable" while resampling's is "corrupting"?</>}
+      />
+
+      {/* A4 — reweight vs resample equivalence (multi) */}
+      <VIS.TrapProblem
+        id="hci-p3"
+        difficulty="hard"
+        multiSelect
+        title="Class-weighting vs oversampling — select every TRUE statement"
+        scenario={<>A colleague claims "class-weighting and oversampling the minority by the same ratio are literally the same thing, so it doesn't matter which you use." Select every statement that is TRUE.</>}
+        options={[
+          {key:"a", text:"In expectation they scale the minority's loss gradient identically, so on a convex objective they reach similar solutions.", correct:true},
+          {key:"b", text:"Random oversampling duplicates rows, so SGD sees exact repeats and can overfit them — reweighting has no duplicates to memorize.", correct:true},
+          {key:"c", text:"SMOTE additionally moves the feature distribution by adding synthetic points, which pure reweighting never does.", correct:true},
+          {key:"d", text:"Both preserve the true base rate in the training set, so neither affects calibration."},
+          {key:"e", text:"Tree split and leaf statistics are computed from raw counts, so integer resampling and fractional weights are exactly interchangeable for trees."},
+        ]}
+        trap={<>(d) is the seductive half-truth: reweighting leaves the DATA's base rate untouched but still shifts the learned probabilities by the weight ratio, and oversampling changes the empirical base rate outright — so NEITHER "preserves calibration" in the naive sense; both need a threshold/calibration adjustment (reweighting's is just cleanly invertible).</>}
+        lens={<>The equivalence is gradient-level and approximate: same expected loss scaling, so similar optima on convex problems. It breaks in three concrete ways — duplication-driven overfitting (oversampling), feature-distribution movement (SMOTE), and count-vs-weight discreteness in trees (e). Knowing WHERE the equivalence fails is what lets you pick: reweighting for the clean gradient, SMOTE only when you actually need new points in feature space.</>}
+        stretch={<>For which model family does the count-vs-weight distinction (e) matter most, and why?</>}
+      />
+
+      {/* D1 — balance 50/50 is the goal */}
+      <VIS.TrapProblem
+        id="hci-p4"
+        difficulty="hard"
+        title="'Balanced training data is the goal' — is it?"
+        scenario={<>A junior states the objective plainly: "the imbalance IS the problem, so the fix is to make the classes balanced — get to 50/50 by whatever means, and the model will finally learn the minority." What is wrong with this framing?</>}
+        options={[
+          {key:"a", text:"Balance is not the goal — the correct decision threshold is. A well-calibrated 2%-prior model plus a tuned threshold usually beats a rebalanced, miscalibrated one.", correct:true},
+          {key:"b", text:"The framing is correct in principle but 50/50 is too aggressive; balancing to the model's optimal 20/80 ratio is the real target to solve for."},
+          {key:"c", text:"The framing is right; the only refinement is to reach 50/50 via SMOTE rather than duplication so the synthetic points add information."},
+          {key:"d", text:"Balance matters only for the loss, not the data, so the fix is to always train at 50/50 and evaluate at 2% — matched training, honest evaluation."},
+        ]}
+        trap={<>(b) accepts the false premise and just haggles the ratio — inventing a "20/80 optimal" that has no principled basis. The error is upstream: the model does not need a balanced training set to learn the minority; it needs enough minority signal (which weighting supplies) and the right operating point (which thresholding supplies).</>}
+        lens={<>Imbalance is a symptom people mistake for the disease. The disease is (a) the gradient being dominated by the majority (fixed by weighting/focal, not by changing the base rate) and (b) the default 0.5 threshold being wrong for a skewed prior (fixed by moving the threshold on validation). Balancing to 50/50 addresses neither cleanly and adds a calibration break. "What ratio should I balance to?" is usually the wrong question.</>}
+        stretch={<>When IS changing the training base rate genuinely the right lever rather than weighting?</>}
+      />
+
+      {/* E6 — AUROC vs AUPRC */}
+      <VIS.TrapProblem
+        id="hci-p5"
+        difficulty="hard"
+        title="AUROC 0.91, and the campaign still bombed"
+        scenario={<>Your subscribe model reports AUROC 0.91 on the 2% holdout — a strong number — but when marketing targets the top-scored users the promo precision is ~25% and they complain the model "doesn't work." Both numbers are real.</>}
+        options={[
+          {key:"a", text:"AUROC is inflated by the huge true-negative pool: FPR stays tiny despite many false positives. AUPRC (baseline 0.02) exposes the precision collapse — make it primary.", correct:true},
+          {key:"b", text:"AUROC 0.91 is trustworthy; the campaign failure is a threshold problem, and re-tuning the cutoff will lift precision without changing the metric story."},
+          {key:"c", text:"The holdout must be leaking: an honest 0.91 AUROC on 2% data guarantees high precision at the top, so the two numbers cannot both be right."},
+          {key:"d", text:"AUPRC and AUROC always agree on model ranking; the discrepancy means the AUPRC was computed on a differently-sampled set."},
+        ]}
+        trap={<>(b) names a real lever (thresholding) but misdiagnoses: no threshold recovers precision the model does not have — AUROC 0.91 is consistent with catching 30% of subscribers at 50% precision, which is a genuine precision ceiling, not a cutoff you can slide past. The metric, not the operating point, is what lied.</>}
+        lens={<>At 2% prevalence, FPR = FP/(FP+TN) is anchored near zero by the enormous TN mass, so ROC looks great while precision = TP/(TP+FP) quietly collapses. AUPRC's baseline is the prevalence itself (0.02), so it moves when the minority is actually handled well. Saito &amp; Rehmsmeier (2015) made this the canonical rule: on imbalanced data the PR plot is more informative than ROC. Report AUPRC first; keep AUROC only as a familiar secondary.</>}
+        stretch={<>Two models: A has higher AUROC, B has higher AUPRC. For a fixed-budget promo (target the top 1%), which do you ship and why?</>}
+      />
+
+      {/* B2 — SMOTE go-to fallacy */}
+      <VIS.TrapProblem
+        id="hci-p6"
+        difficulty="hard"
+        title="'SMOTE is the standard imbalance fix' — when is it actually wrong here?"
+        scenario={<>A teammate insists SMOTE is the obvious tool: "it's the classic imbalance method, it makes synthetic minority points instead of dumb duplicates, so it strictly beats class weighting." For the 2%-subscribe model with millions of real positive examples, why is this the wrong default?</>}
+        options={[
+          {key:"a", text:"SMOTE addresses an undersampled minority MANIFOLD, not a skewed ratio — with millions of real positives, interpolation adds noise, not signal, and breaks calibration.", correct:true},
+          {key:"b", text:"SMOTE is wrong only because it is slow at this scale; a faster oversampler with the same interpolation would be the correct choice."},
+          {key:"c", text:"SMOTE is fine here; the only caution is to raise k (more neighbors) so the synthetic points are smoother at high sample counts."},
+          {key:"d", text:"SMOTE is wrong because it cannot handle the categorical features in a subscribe model, but on the numeric features it remains the best option."},
+        ]}
+        trap={<>(c) treats SMOTE as always-appropriate-with-tuning, missing that the JUSTIFICATION for it is absent here: SMOTE exists to fill in a minority class that is too small to define its own shape. When you already have millions of real positives, there is nothing to fill in — you are interpolating between points that already densely cover the manifold, manufacturing noise and shifting the base rate for no benefit.</>}
+        lens={<>The question SMOTE answers is "do I have too few REAL minority examples to define the class?" — not "is my ratio skewed?" A 2% rate with millions of positives is a ratio problem (fixed by weighting + threshold), not a scarcity problem. Benchmarks bear this out: Kovács 2019 finds no universal SMOTE winner and modest gains; "To SMOTE or not to SMOTE?" (2022) shows the benefit largely vanishes with strong classifiers plus calibration. SMOTE is a scarcity tool, applied last, when scarcity is real.</>}
+        stretch={<>Describe a Prime Video sub-problem where the positives ARE genuinely scarce, making SMOTE (or ADASYN) the right call.</>}
+      />
+
+      {/* C — focal loss mechanism + calibration */}
+      <VIS.TrapProblem
+        id="hci-p7"
+        difficulty="hard"
+        title="Focal loss helped recall — is the output a probability?"
+        scenario={<>You add <VIS.Term def="Focal loss: FL = −(1−p_t)^γ·log(p_t). Down-weights easy, well-classified examples so the gradient focuses on hard ones. From RetinaNet (Lin 2017), γ=2 standard.">focal loss</VIS.Term> (γ=2) to focus the gradient on hard subscribers; recall improves. A teammate wants to feed the model's output directly into an expected-value promo-ranking formula as P(subscribe). Safe?</>}
+        options={[
+          {key:"a", text:"Not by default: focal down-weights easy examples, so its outputs aren't proper probabilities — calibrate (temperature/Platt) and check a reliability diagram first.", correct:true},
+          {key:"b", text:"Yes: focal loss is a drop-in replacement for cross-entropy, and any model trained with a log-loss-family objective is automatically calibrated."},
+          {key:"c", text:"No, and it is unfixable: focal loss permanently destroys probability meaning, so you must retrain with plain cross-entropy to get usable probabilities."},
+          {key:"d", text:"Yes for ranking specifically: focal preserves the score ORDER, and expected-value ranking only needs order, so calibration is irrelevant here."},
+        ]}
+        trap={<>(d) is subtle: ranking by score order alone would be fine — but an EXPECTED-VALUE formula multiplies P(subscribe) by a value, so it consumes the probability MAGNITUDE, not just the order. Uncalibrated magnitudes make the expected values wrong even when the ranking is right. (c) overshoots the other way — calibration is a fixable post-hoc step, not a retrain.</>}
+        lens={<>Focal loss is not a proper scoring rule by construction: the (1−p_t)^γ factor down-weights easy examples precisely so the model stops caring about calibrating them. Recover probabilities with a post-hoc calibrator (temperature scaling, Platt) fit on a held-out set, and verify with a reliability diagram. Nuance worth carrying: Mukhoti et al. (2020) found focal can actually REDUCE a deep net's overconfidence versus CE — so "focal is always miscalibrated" is also wrong. The senior answer is empirical: calibrate, then check.</>}
+        stretch={<>Where does γ interact with class weighting — what does the α-balanced focal variant add, and when do you need it on top of γ?</>}
+      />
+
+      {/* B — the full end-to-end structure (multi) */}
+      <VIS.TrapProblem
+        id="hci-p8"
+        difficulty="hard"
+        multiSelect
+        title="'End-to-end' means three levels — select every correctly-placed choice"
+        scenario={<>The prompt explicitly asks for data-level, algorithm-level, AND evaluation-level handling. A candidate lists their plan. Select every item that is correctly categorized AND appropriate for the 2%-subscribe case.</>}
+        options={[
+          {key:"a", text:"Algorithm level: class-weighted CE (pos_weight≈49) as the primary lever, focal loss as a secondary if easy negatives dominate.", correct:true},
+          {key:"b", text:"Evaluation level: AUPRC as the primary metric, calibration (reliability diagram) tracked, threshold chosen on validation by business cost.", correct:true},
+          {key:"c", text:"Data level: if used at all, resample the TRAIN fold only, inside CV, and recalibrate afterward — never touch the val/test prior.", correct:true},
+          {key:"d", text:"Evaluation level: report accuracy as the headline number, since it is the most interpretable metric for stakeholders."},
+          {key:"e", text:"Data level: resample the validation and test sets to 50/50 as well, so every split is processed consistently."},
+        ]}
+        trap={<>(e) is the calibration-and-evaluation killer that even careful candidates commit: "process every split the same way" sounds disciplined but destroys the one thing evaluation must preserve — the TRUE 2% prior. Resample val/test and every metric, threshold, and calibration check becomes fiction. (d) picks the metric that is useless at 2% (99% accuracy by predicting all-negative).</>}
+        lens={<>End-to-end means the three levels cooperate: algorithm-level weighting supplies minority signal without moving the base rate; evaluation-level AUPRC + calibration + cost-based thresholding measures honestly on the true prior; data-level resampling, IF used, is confined to the train fold and followed by recalibration. The invariant that ties it together: only the TRAINING distribution may be altered — the evaluation distribution must always reflect production's 2%.</>}
+        stretch={<>Why does resampling the test set specifically invalidate the threshold you picked on validation?</>}
+      />
+
+      {/* D — resample the test set */}
+      <VIS.TrapProblem
+        id="hci-p9"
+        difficulty="medium"
+        title="'Balance the test set too, so training and eval match'"
+        scenario={<>A junior argues for consistency: "if I train on balanced data, I should test on balanced data — otherwise the distributions don't match and the metrics aren't comparable. I'll resample the test set to 50/50 as well." Grade it.</>}
+        options={[
+          {key:"a", text:"Never balance the test set: it must reflect production's true 2% prior, or precision, AUPRC, calibration, and the threshold all become fiction.", correct:true},
+          {key:"b", text:"Correct: matched train/test distributions are a basic requirement, so balancing both is the statistically sound choice."},
+          {key:"c", text:"Partly right: balance the test set but keep a small unbalanced holdout for final reporting, using the balanced set for model selection."},
+          {key:"d", text:"Correct for metrics but not thresholds: compute AUPRC on the balanced test set, then pick the threshold on an unbalanced set."},
+        ]}
+        trap={<>(b) elevates "matched distributions" — a real principle for the TRAIN/serve relationship — into a rule that destroys evaluation. Test data answers "how will this do in production?", and production runs at 2%, not 50%. Matching the test set to a deliberately-distorted training set measures performance in a world that does not exist.</>}
+        lens={<>Only the training distribution is a modeling choice; the evaluation distribution is a fact about deployment. AUPRC's baseline is the prevalence — compute it at 50% and it reads ~0.5 baseline, flattering a useless model; precision at any threshold changes with the prior. The consistency that matters is test-set-equals-production, not test-set-equals-training. (c)/(d) try to split the difference and just relocate the same error.</>}
+        stretch={<>You DID need a balanced set somewhere in the workflow — where is it legitimately useful?</>}
+      />
+
+      {/* E3 — library specifics (multi) */}
+      <VIS.TrapProblem
+        id="hci-p10"
+        difficulty="hard"
+        multiSelect
+        title="Implementing the weighting — select every correct mechanism"
+        scenario={<>You are wiring up class weighting across the stack. Select every statement that is TRUE about the standard library mechanisms.</>}
+        options={[
+          {key:"a", text:"sklearn class_weight='balanced' sets weights to n_samples / (n_classes · bincount(y)) — inverse-frequency, computed for you.", correct:true},
+          {key:"b", text:"XGBoost/LightGBM use scale_pos_weight = sum(negatives)/sum(positives) to upweight the positive class.", correct:true},
+          {key:"c", text:"PyTorch BCEWithLogitsLoss(pos_weight=tensor([neg/pos])) multiplies the positive term of the loss.", correct:true},
+          {key:"d", text:"After setting these weights, the default 0.5 decision threshold remains optimal because the weighting already balances the classes."},
+          {key:"e", text:"class_weight='balanced' also rebalances the physical training rows, so it is equivalent to oversampling on disk."},
+        ]}
+        trap={<>(d) is the pervasive follow-through error: weighting changes the LOSS landscape and hence the probability scale, so 0.5 is no longer the right cut — you must re-derive the threshold on validation. (e) confuses reweighting with resampling: class_weight scales the loss, it does not touch the rows on disk (that is what makes it the clean, no-duplicates option).</>}
+        lens={<>The three APIs are the same idea — upweight the minority's contribution to the loss — expressed per framework: sklearn's inverse-frequency formula, the boosters' scale_pos_weight ratio, PyTorch's pos_weight multiplier. What they all share is the CONSEQUENCE (d) names wrongly: none of them fixes the decision threshold, and all of them shift the probability scale, so every weighted model needs a validation-set threshold pick and a calibration check before serving.</>}
+        stretch={<>pos_weight ≈ 49 upweights positives 49×. What does that do to the model's predicted probabilities, and which correction inverts it?</>}
+      />
+
+      {/* E — calibration layer specifics */}
+      <VIS.TrapProblem
+        id="hci-p11"
+        difficulty="hard"
+        title="Isotonic or Platt — and fit it on WHICH data?"
+        scenario={<>You decide to recalibrate the weighted model's probabilities. Your calibration options are isotonic regression and Platt (sigmoid) scaling, and you must choose the data to fit the calibrator on. Which combination is right for the 2%-subscribe model?</>}
+        options={[
+          {key:"a", text:"Fit the calibrator on held-out data from the TRUE 2% distribution; Platt if that set is small (isotonic overfits), isotonic if it is large.", correct:true},
+          {key:"b", text:"Fit isotonic on the balanced training set — more data and a flexible fit give the most accurate calibration map."},
+          {key:"c", text:"Fit Platt on the test set right before reporting, so the final numbers reflect perfectly calibrated probabilities."},
+          {key:"d", text:"Calibration data choice does not matter as long as the method is isotonic, which is non-parametric and therefore distribution-independent."},
+        ]}
+        trap={<>(b) fits the calibrator on the WRONG prior — a 50%-balanced set teaches the calibrator to map to 50%-world probabilities, re-baking the exact base-rate distortion you are trying to remove. (c) leaks: fitting anything on the test set and then reporting on it inflates the numbers. The calibrator must learn the true-prior mapping, from true-prior data, held out from training.</>}
+        lens={<>Calibration is a small supervised fit, so it obeys the same discipline as the model: fit on held-out data from the deployment distribution, never on training or test. Method choice trades flexibility for data hunger — Platt (a 2-parameter sigmoid) is robust on small calibration sets; isotonic (monotone step function) is more flexible but overfits when minority examples are few (and at 2%, your calibration set's POSITIVE count is what limits it). Pick by how many real positives the calibration set contains.</>}
+        stretch={<>Why is the number of POSITIVES, not rows, the binding constraint on isotonic calibration here?</>}
+      />
+
+      {/* B — threshold selection */}
+      <VIS.TrapProblem
+        id="hci-p12"
+        difficulty="hard"
+        title="Where does the decision threshold come from?"
+        scenario={<>Marketing needs a yes/no "target this user with the subscribe promo" decision. The promo costs little to send but annoys non-subscribers slightly; catching a real subscriber is valuable. Where and how do you set the threshold?</>}
+        options={[
+          {key:"a", text:"On the validation set, by the business cost ratio (cost of a false positive vs value of a caught subscriber) — not the default 0.5, and never tuned on test.", correct:true},
+          {key:"b", text:"At 0.5, the natural decision boundary; if that flags too many users, retrain with stronger regularization until 0.5 gives the right volume."},
+          {key:"c", text:"On the test set, choosing the threshold that maximizes the reported F1 so the final metric is as strong as possible."},
+          {key:"d", text:"Wherever recall hits 100%, since missing a potential subscriber is the costly error and false positives are free."},
+        ]}
+        trap={<>(d) takes "false positives are cheap" to an absurd corner — 100% recall means flagging everyone, which is not a model at all and floods users with promos (the annoyance cost is small, not zero, and it compounds across millions). (c) tunes on test, converting the holdout into a selection set and inflating the reported F1.</>}
+        lens={<>The threshold is a business decision informed by the cost matrix, computed on validation: sweep the PR curve, evaluate expected cost = (FP · annoyance) − (TP · subscriber value) at each operating point, pick the minimizer. 0.5 is meaningless after weighting shifted the probability scale, and test-set tuning is leakage. The threshold is where the ML model meets the P&amp;L — own that it comes from costs, not from a default.</>}
+        stretch={<>The promo's annoyance cost is hard to quantify. What proxy would you negotiate with the business to make the cost ratio concrete?</>}
+      />
+
+      {/* F — SMOTE noise/bridges high-dim */}
+      <VIS.TrapProblem
+        id="hci-p13"
+        difficulty="hard"
+        title="SMOTE on the subscribe features made precision worse"
+        scenario={<>Against your advice, a teammate SMOTEs the minority in the full feature space (numeric + one-hot categoricals, ~400 dims). Recall rises slightly but precision drops and the model flags odd user segments. What is the mechanism?</>}
+        options={[
+          {key:"a", text:"SMOTE interpolates assuming a convex, locally-linear manifold; in high-d and across one-hots that fails, so synthetic points land off-manifold, between classes — noise.", correct:true},
+          {key:"b", text:"SMOTE always improves recall at the cost of precision by design; the drop is the expected trade and can be tuned back with a higher threshold."},
+          {key:"c", text:"The problem is too few neighbors; raising k in SMOTE to include more minority points removes the off-manifold synthetic examples."},
+          {key:"d", text:"One-hot categoricals need scaling before SMOTE; standardizing them makes the interpolation valid and restores precision."},
+        ]}
+        trap={<>(d) names a real hygiene step (scaling) but misses that interpolating a one-hot dimension is meaningless regardless of scale — a synthetic 0.4 in a "country_US" column encodes a user who is 40% American, which is off-manifold by construction. Scaling cannot rescue interpolation between categorical levels; the assumption itself is violated.</>}
+        lens={<>SMOTE's core assumption is that the straight line between two real minority points is also minority-class territory — a convex, smoothly-varying manifold. High dimensionality (points far apart, interpolations landing in empty space) and categorical features (fractional levels are nonsense) both break it, producing synthetic points that bridge into majority regions. The documented failure mode: SMOTE amplifies label noise and builds inter-class bridges in high dim. If you must synthesize, do it in a learned low-dim space or use category-aware variants — and remember the base-rate/calibration cost still applies.</>}
+        stretch={<>SMOTE-NC exists for categorical features. What does it do differently, and why is it still risky at 400 dims?</>}
+      />
+
+      {/* F — oversample before split leakage */}
+      <VIS.TrapProblem
+        id="hci-p14"
+        difficulty="hard"
+        title="The SMOTE'd model that aced CV and flopped live"
+        scenario={<>A pipeline runs SMOTE on the full dataset, THEN does 5-fold CV; cross-validated AUPRC is excellent, production is poor. The split is stratified and the model is reasonable.</>}
+        options={[
+          {key:"a", text:"SMOTE before the split is leakage: synthetics from neighbors straddling folds put near-copies of val points in train, so CV scores its own work.", correct:true},
+          {key:"b", text:"The CV is fine; the live drop is ordinary distribution shift between the training period and the serving period."},
+          {key:"c", text:"5-fold is too few for imbalanced data; 10-fold stratified CV would have surfaced the true, lower AUPRC and exposed the gap before production."},
+          {key:"d", text:"SMOTE needs a fixed random seed; without it each fold synthesizes different points, inflating the variance and the mean score."},
+        ]}
+        trap={<>(b) reaches for the always-plausible "distribution shift," but the fingerprint here is specific: excellent CV that does not transfer, produced by SMOTE-before-split. Shift would not manufacture near-duplicates across the fold boundary — leakage does, and that is what inflated the CV.</>}
+        lens={<>This is the imbalance-flavored version of the pipeline-order rule: any fit-able transform (SMOTE learns from the minority neighborhood) must run INSIDE the split, on the train fold only. SMOTE'd before splitting, a synthetic point built by interpolating a train point and a val point is a near-copy of the val point sitting in train — the model memorizes it and CV rewards the memorization. Fix: imblearn.pipeline.Pipeline, which applies the sampler in fit only, so each fold synthesizes from its own train data and the val fold stays pristine.</>}
+        stretch={<>Why does stratification (which the team did) fail to prevent this particular leak?</>}
+      />
+
+      {/* D — undersampling always worse */}
+      <VIS.TrapProblem
+        id="hci-p15"
+        difficulty="medium"
+        title="'Undersampling throws away data, so it's always the worst option'"
+        scenario={<>A candidate dismisses undersampling: "dropping majority rows discards information, so it must be strictly worse than oversampling or weighting — never use it." For the 2%-subscribe model with hundreds of millions of negatives, is that right?</>}
+        options={[
+          {key:"a", text:"Not always: when the majority is huge and redundant, undersampling loses little signal, speeds training, and a calibration correction restores probabilities.", correct:true},
+          {key:"b", text:"Correct: information is always valuable, so discarding any majority rows strictly reduces achievable accuracy."},
+          {key:"c", text:"Correct, with one exception: undersampling is acceptable only if you first cluster the majority and keep one representative per cluster."},
+          {key:"d", text:"Undersampling is fine and needs no correction, because removing negatives does not change the model's predicted probabilities."},
+        ]}
+        trap={<>(d) gets the direction of the calibration effect wrong: removing negatives RAISES the empirical positive rate, so predictions inflate exactly as with oversampling — undersampling needs the same recalibration (He 2014's q = p/(p+(1−p)/w)). "Undersampling is fine" is right; "needs no correction" is not.</>}
+        lens={<>With hundreds of millions of near-redundant negatives, the 100-millionth negative teaches the model almost nothing new — so undersampling trades negligible signal for a large training-speed win, which is why the downsample-negatives-then-recalibrate idiom is standard at ad/rec scale (He et al. 2014). The catch is the same base-rate shift as oversampling, corrected with the same formula. Undersampling is a legitimate, often smart lever — just never uncorrected.</>}
+        stretch={<>At what point does undersampling start to hurt — what signal in the learning curve tells you you've dropped too many negatives?</>}
+      />
+
+      {/* C — the odds-shift arithmetic */}
+      <VIS.TrapProblem
+        id="hci-p16"
+        difficulty="hard"
+        title="Put a number on the calibration break"
+        scenario={<>You train at a balanced 50/50 prior on data whose true positive rate is 2%. A user gets predicted probability 0.6 from the balanced model. Roughly what is the calibration-corrected P(subscribe), and what drove the gap?</>}
+        options={[
+          {key:"a", text:"Far below 0.6 — near 0.03: divide the ~49× odds inflation back out and a balanced 0.6 (odds 1.5) becomes odds ≈0.03, a low-single-digit probability.", correct:true},
+          {key:"b", text:"About 0.6 still: calibration shifts only the average predicted rate, not any individual prediction, so a specific user's 0.6 is unaffected."},
+          {key:"c", text:"About 0.3 — the correction simply halves the balanced probability because the training set was doubled from its natural minority size."},
+          {key:"d", text:"Above 0.6: correcting toward the rare true class makes positive predictions MORE confident, since rarity is evidence of importance."},
+        ]}
+        trap={<>(b) misunderstands the mechanism: the prior shift multiplies the ODDS of every prediction, so individual probabilities move, not just the average. (c) invents a "halving" rule from the resample ratio, but the correction acts on odds (×49), not on the probability linearly — a balanced 0.6 (odds 1.5) becomes odds ≈ 1.5/49 ≈ 0.031, i.e. p ≈ 0.03, not 0.3.</>}
+        lens={<>Work in odds: balancing multiplied positive odds by (0.5/0.5)/(0.02/0.98) ≈ 49, so recovering the true probability divides odds by ~49. A balanced prediction of 0.6 → odds 1.5 → true odds ≈ 0.031 → p ≈ 0.030. The correction is a fixed odds-scaling (Saerens 2002 / He 2014), which is exactly why class-weighting's distortion is "clean": it is invertible with one number. Being able to do this arithmetic live is what separates "I know rebalancing breaks calibration" (the 2.8/5 answer) from "here is by how much, and here is the inverse."</>}
+        stretch={<>Redo the correction for a balanced prediction of 0.99. Does the same ~49× odds division apply, and what true probability results?</>}
+      />
+
+      {/* E — monitoring */}
+      <VIS.TrapProblem
+        id="hci-p17"
+        difficulty="hard"
+        title="Which production monitor catches a calibration regression first?"
+        scenario={<>The subscribe model is live. You can afford one lightweight standing monitor to catch the most common silent failure of an imbalanced classifier. Which single signal is most diagnostic?</>}
+        options={[
+          {key:"a", text:"Mean predicted positive rate vs observed base rate: when average P(subscribe) drifts off the true ~2%, calibration has regressed — cheap and early.", correct:true},
+          {key:"b", text:"Overall accuracy: a drop below 98% signals the model is mishandling the majority class, which is the dominant failure at 2% positive."},
+          {key:"c", text:"AUROC on the daily traffic: a fall from ~0.9 is the clearest sign the model's ranking quality has degraded."},
+          {key:"d", text:"The raw count of positive predictions per day: a change in volume is the direct signal that the model has stopped working."},
+        ]}
+        trap={<>(b) monitors the metric that cannot move meaningfully at 2% — accuracy sits near 98% whether the model is excellent or predicts all-negative, so it is blind to exactly the failures that matter. (d)'s raw volume conflates legitimate traffic changes with model regressions; normalizing to a RATE (a) is what makes it a calibration signal.</>}
+        lens={<>The characteristic silent failure of an imbalanced classifier is calibration drift — the ranking can look fine on AUROC while predicted probabilities slide off the true base rate, corrupting every expected-value decision downstream. Comparing mean predicted rate to observed prevalence is a one-number calibration check that catches this early and cheaply; pair it with AUPRC and precision@k over time for depth. Accuracy is the monitor to NOT rely on here.</>}
+        stretch={<>Mean-predicted-vs-observed can miss a model that is miscalibrated in opposite directions across two segments. What complementary view fixes that blind spot?</>}
+      />
+
+      {/* A — focal vs weighting: which lever for WHICH failure */}
+      <VIS.TrapProblem
+        id="hci-p18"
+        difficulty="hard"
+        title="Weighting didn't help — is focal loss the right escalation?"
+        scenario={<>You add class weights (pos_weight≈49) and recall barely improves; the loss is dominated by a sea of trivially-easy negatives the model already classifies with p≈0.001. A teammate says "weighting failed, so escalate to SMOTE." What is the better escalation, and why?</>}
+        options={[
+          {key:"a", text:"Focal loss: the failure is easy-negative gradient swamping, and (1−p_t)^γ shrinks the easy negatives — SMOTE addresses scarcity, which is not the problem here.", correct:true},
+          {key:"b", text:"SMOTE, as suggested: if weighting didn't lift recall, the minority is underrepresented and synthetic positives are the logical next step."},
+          {key:"c", text:"Raise pos_weight far above 49 (say 500) until recall moves; the weight was simply too timid for this level of imbalance."},
+          {key:"d", text:"Switch to accuracy-driven early stopping so training runs longer on the minority before it converges on the majority."},
+        ]}
+        trap={<>(c) escalates the wrong knob: cranking pos_weight to 500 over-corrects toward the minority, wrecking calibration and precision — brute-forcing a weight cannot re-focus the gradient AWAY from easy negatives, it just amplifies the minority term uniformly. The failure is WHERE the gradient goes, not HOW MUCH the minority counts.</>}
+        lens={<>Match the lever to the failure. Class weighting fixes "the minority contributes too little total loss." Focal loss fixes "easy examples (usually negatives) dominate the gradient even after weighting" — its (1−p_t)^γ factor is a per-example down-weight that a scalar class weight cannot express. SMOTE fixes "too few real minority points to define the class." Here the symptom (a sea of p≈0.001 easy negatives) names focal specifically. The diagnostic order is the point: escalate along the axis that matches the observed failure, not down a fixed list.</>}
+        stretch={<>Can you get focal's easy-example down-weighting effect purely through per-example weights? What would you have to compute, and why is focal cleaner?</>}
+      />
+
+      {/* F — metric mismatch */}
+      <VIS.TrapProblem
+        id="hci-p19"
+        difficulty="hard"
+        title="The model optimized for logloss, the business wanted precision@budget"
+        scenario={<>The subscribe model trains and early-stops on logloss, reports a strong AUPRC, and ships. Marketing can only contact the top 100k users per week and finds the precision in that top slice underwhelming. The offline metrics looked fine.</>}
+        options={[
+          {key:"a", text:"Metric mismatch: logloss and full-curve AUPRC reward the whole distribution, but the business uses only the top-100k slice — optimize precision@k at the real operating point.", correct:true},
+          {key:"b", text:"The model is simply undertrained; running more epochs to push logloss lower will raise precision at the top as a side effect."},
+          {key:"c", text:"AUPRC already summarizes precision at every threshold, so a good AUPRC guarantees good precision@100k — the marketing measurement must be wrong."},
+          {key:"d", text:"The fix is recalibration: better-calibrated probabilities automatically improve precision in the top slice regardless of the metric optimized."},
+        ]}
+        trap={<>(c) treats a curve summary as a point guarantee: AUPRC integrates precision across ALL recall levels, so two models with equal AUPRC can differ sharply in precision at the top 100k specifically. The aggregate can look great while the one slice the business uses is mediocre — the average hides the operating point.</>}
+        lens={<>Optimize and report the metric your system actually consumes. A fixed-contact-budget promo lives at precision@k (k = weekly capacity) or recall@fixed-alert-rate — a single point on the PR curve, not its integral. Logloss and AUPRC are reasonable training/summary metrics but they average over operating points nobody uses. The senior habit: identify the deployment operating point FIRST, then choose the training objective and the headline metric to match it. (d) helps calibration-driven ranking but does not target the top-slice precision directly.</>}
+        stretch={<>Precision@100k and logloss can disagree on which of two models to ship. Construct the situation where they do.</>}
+      />
+
+      {/* B3 — stakeholder pitch anchored in mechanism */}
+      <VIS.TrapProblem
+        id="hci-p20"
+        difficulty="hard"
+        title="Explain to the PM why you're NOT balancing the data"
+        scenario={<>Your PM read a blog post and asks: "everyone balances imbalanced data — why are you refusing to, and shipping a model that's '98% trained on non-subscribers'? Justify it in one clear reason." Pick the pitch that survives scrutiny.</>}
+        options={[
+          {key:"a", text:"Balancing makes the probabilities lie — near 50% when the truth is 2% — corrupting every promo-budget decision that multiplies by P. Weighting keeps them honest.", correct:true},
+          {key:"b", text:"Balancing is an outdated technique that modern architectures have superseded, so refusing it keeps our stack current and maintainable."},
+          {key:"c", text:"Balancing is too slow at our data scale, so the decision is really about training cost rather than model quality."},
+          {key:"d", text:"Balancing hurts accuracy, and since accuracy is the metric leadership tracks on the dashboard, we protect the headline number by choosing not to balance."},
+        ]}
+        trap={<>(d) anchors on accuracy — the one metric that is meaningless here (98% by predicting all-negative) — so the pitch collapses the moment the PM asks "then why is accuracy 98% either way?" (b) and (c) dodge into fashion and cost, neither of which is the real reason and both of which lose to "then let's balance and eat the cost."</>}
+        lens={<>The pitch that survives is anchored in the concrete downstream consequence: balancing breaks calibration, and this product MULTIPLIES P(subscribe) by a value to budget promos, so a 50%-world probability makes every expected-value decision wrong. Class-weighting delivers the same gradient focus on subscribers while keeping probabilities that mean what they say. A pitch that would still hold if you swapped "balancing" for any other technique was never really about balancing — this one turns on the specific calibration mechanism, which is why it holds.</>}
+        stretch={<>The PM counters: "then just balance AND recalibrate afterward." Give the one-sentence reason weighting is still the cleaner default.</>}
+      />
+
+      {/* F — the reliability-diagram read */}
+      <VIS.TrapProblem
+        id="hci-p21"
+        difficulty="hard"
+        title="Read the reliability diagram"
+        scenario={<>You plot predicted probability (x) against observed frequency (y) for the rebalanced model, binned. The curve sits consistently ABOVE the diagonal at low predicted values and bows well above it across the middle. What does this show, and what is the fix?</>}
+        options={[
+          {key:"a", text:"Systematic over-prediction from the base-rate shift: predicted exceeds observed everywhere — the balanced-prior signature. Fix with prior correction or a true-prior calibrator.", correct:true},
+          {key:"b", text:"Good calibration: a curve above the diagonal means the model is appropriately cautious, over-estimating risk on the safe side, which is desirable for a promo model."},
+          {key:"c", text:"Under-confidence: the model's probabilities are too low, so applying a temperature below 1 to sharpen them will pull the curve onto the diagonal."},
+          {key:"d", text:"Label noise in the minority class; cleaning the subscribe labels will straighten the curve without any calibration step."},
+        ]}
+        trap={<>(b) spins a clear defect as a virtue — "cautious/above the diagonal is safe" — but above-the-diagonal here means predicted > observed, i.e. the model claims higher subscribe probability than reality delivers, which OVER-targets and wastes promo budget. There is nothing conservative about systematically overstating the positive rate. (c) has the direction backwards (over-, not under-, confident).</>}
+        lens={<>Reliability diagram literacy: points ABOVE the diagonal mean predicted probability EXCEEDS observed frequency (over-prediction); below means under. A balanced-prior model over-predicts everywhere because its implied base rate (50%) sits far above reality (2%) — the exact fingerprint of the calibration break. The fix is not label cleaning or temperature guessing but the principled base-rate correction (Saerens/He) or a calibrator fit on held-out true-prior data. Reading the curve's direction tells you which way the probabilities are wrong.</>}
+        stretch={<>Sketch what the SAME model's reliability diagram would look like after a correct prior correction. Where do the points move?</>}
+      />
+
+      {/* A5 — the whole decision as one ordered answer */}
+      <VIS.TrapProblem
+        id="hci-p22"
+        difficulty="hard"
+        title="Deliver the 5/5 end-to-end answer"
+        scenario={<>The interviewer wants the complete end-to-end handling in priority order. Four candidates give their structure. Which is the 5/5?</>}
+        options={[
+          {key:"a", text:"'Weighted CE first (calibration-safe); focal if easy negatives swamp; SMOTE only if positives are scarce. Evaluate AUPRC + calibration; threshold by cost on validation; keep test at 2%.'", correct:true},
+          {key:"b", text:"'Balance to 50/50 with SMOTE, tune the threshold, report AUROC and accuracy — the standard imbalance recipe applied cleanly and in order.'"},
+          {key:"c", text:"'List every technique — oversampling, undersampling, SMOTE, ADASYN, class weights, focal, threshold moving — and try each, comparing AUROC to pick the winner empirically.'"},
+          {key:"d", text:"'Use a model that handles imbalance natively, so no data or loss changes are needed and evaluation can stay on standard accuracy.'"},
+        ]}
+        trap={<>(c) is the sophisticated near-miss — it knows every technique (more than (b)!) but has no PRIORITY and picks by AUROC, the metric that lies at 2%. Breadth without an ordering principle, judged by the wrong metric, is exactly the gap between naming tools and wielding them. (b) is the 2.8/5 answer with confidence added.</>}
+        lens={<>The 5/5 answer is (a)'s SHAPE: a cost-ordered escalation across the three levels with explicit stop conditions and calibration held sacred — loss-first because it is cheap and calibration-safe, data-last because it is expensive and calibration-breaking, evaluation anchored on AUPRC + calibration + cost-based thresholding at the true prior. The technique list is table stakes; the ordering logic and the calibration discipline are the signal. That is precisely what the 2.8/5 answer was missing — it had the calibration intuition but defaulted to resampling instead of leading with the loss.</>}
+        stretch={<>Give the one sentence of the 5/5 answer that most directly fixes the specific mistake the real candidate made.</>}
+      />
+
+    </VIS.Section>
   </main>
 );
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
