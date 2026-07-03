@@ -1964,9 +1964,9 @@ flowchart LR
         title="Q6 — Dropout placed directly before BatchNorm: what breaks?"
         scenario={<><em>Discriminating insight:</em> what train/test inconsistency does dropout-before-BN create? You are debugging a 2% test accuracy drop on a CNN that worked fine when dropout was disabled.</>}
         options={[
-          {key:"a", text:"Variance shift: training-time activations are scaled down by the mask, but BN's running variance stats see the un-masked inference distribution; the mismatch corrupts normalization.", correct:true},
+          {key:"a", text:"Variance shift: training activations are scaled down by the mask, but BN's running variance sees the unmasked inference distribution — the mismatch corrupts normalization.", correct:true},
           {key:"b", text:"Gradient explosion: dropout zeros amplify gradients through BN's normalization since 1/std becomes very large for sparse inputs."},
-          {key:"c", text:"Mode collapse: the network learns to ignore the BN affine parameters because dropout already centers the activations around zero on average."},
+          {key:"c", text:"Mode collapse: the network gradually learns to ignore the BN affine parameters entirely because dropout has already centered the activations around zero on average."},
           {key:"d", text:"Train-eval drift: BN's momentum parameter accumulates incorrect mean estimates because dropout makes the input mean drift across epochs."},
         ]}
         trap={<>(b) misidentifies the failure mode as gradient-related. (c) confuses BN's affine learnable parameters with the normalization itself. (d) describes a mean-shift story but the actual issue is variance, not mean.</>}
@@ -1981,9 +1981,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> what changes between the two protocols at evaluation time? A teammate proposes using dropout for uncertainty estimates on a classifier in production.</>}
         options={[
           {key:"a", text:"MC dropout uses a different mask distribution at inference time — a Gaussian rather than the Bernoulli used during training."},
-          {key:"b", text:"MC dropout leaves dropout masks active at inference, runs M stochastic forward passes, and averages the M predictions; standard dropout disables masks at eval.", correct:true},
+          {key:"b", text:"MC dropout leaves masks active at inference, runs M stochastic passes, and averages them; standard dropout disables masks at eval.", correct:true},
           {key:"c", text:"MC dropout retrains the network with twice the number of epochs and a halved learning rate to converge the posterior."},
-          {key:"d", text:"MC dropout requires a second held-out calibration pass to set the inference-time temperature parameter for the softmax."},
+          {key:"d", text:"MC dropout requires a second held-out calibration pass to set the inference-time temperature parameter that rescales the softmax logits."},
         ]}
         trap={<>(a) is a plausible-sounding distinction but the mask family doesn't change. (c) describes a fully different training protocol. (d) confuses MC dropout with temperature scaling for calibration.</>}
         lens={<>MC dropout = dropout left ON at inference, M samples averaged. It approximates a Bayesian posterior over weights and gives an uncertainty estimate (variance across the M passes). Standard dropout is deterministic at inference.</>}
