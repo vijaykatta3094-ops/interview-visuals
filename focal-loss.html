@@ -2184,7 +2184,7 @@ const App = () => (
         scenario={<><em>Discriminating insight:</em> the two factors multiply; the per-sample modulation and per-class weight are independent.</>}
         options={[
           {key:"a", text:"They are exclusive choices: use α for class-imbalance, or γ for confidence-imbalance, but not both simultaneously."},
-          {key:"b", text:"They multiply: αFL = -α_t · (1 - p_t)^γ · log(p_t). α is a per-class scalar; (1-p_t)^γ is a per-sample modulator. Both are tuned together.", correct:true},
+          {key:"b", text:"They multiply: αFL = -α_t·(1-p_t)^γ·log(p_t). α is a per-class scalar, (1-p_t)^γ a per-sample modulator; tune both together.", correct:true},
           {key:"c", text:"α replaces γ when classes are extremely imbalanced (>99/1); below that, γ is sufficient."},
           {key:"d", text:"α is applied to the modulating factor itself: (α(1-p_t))^γ — α modifies the steepness of the focal curve."},
         
