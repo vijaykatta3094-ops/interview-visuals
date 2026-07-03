@@ -2050,9 +2050,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> SMOTE creates variation rather than copies, beyond just balancing counts. A junior teammate proposes copying every minority row 100× and asks why you'd reach for SMOTE instead.</>}
         options={[
           {key:"a", text:"Duplication makes batches deterministic; SMOTE adds stochasticity so the optimizer escapes saddle points."},
-          {key:"b", text:"SMOTE generates new points in between real minority samples, so the model sees continuous variation rather than memorizing identical rows.", correct:true},
+          {key:"b", text:"SMOTE generates new points between real minority samples, so the model sees continuous variation instead of memorizing identical rows.", correct:true},
           {key:"c", text:"Duplication requires the loss to be re-normalized by frequency; SMOTE avoids that engineering step."},
-          {key:"d", text:"SMOTE removes the need for any class-weighted loss, while duplication still requires one."},
+          {key:"d", text:"SMOTE completely removes the need for any class-weighted loss function, whereas plain duplication of rows still requires one."},
         ]}
         trap={<>(a) invents a saddle-point story unrelated to the actual mechanism. (c) describes a re-weighting concern, not why duplication memorizes. (d) is wrong — class weighting and SMOTE are independent knobs that often combine.</>}
         lens={<>Duplicates are pixel-identical: the model achieves zero loss on them by memorization alone, which doesn't improve the decision boundary. SMOTE's interpolated points are novel locations on the minority manifold, so reducing loss on them forces the model to actually learn the minority region.</>}
@@ -2145,9 +2145,9 @@ flowchart TD
         title="Q7 — ADASYN's defining difference from SMOTE"
         scenario={<><em>Discriminating insight:</em> per-sample synthetic budget proportional to local difficulty, beyond uniform global counts. A senior engineer asks how ADASYN differs from plain SMOTE in one sentence.</>}
         options={[
-          {key:"a", text:"ADASYN replaces k-NN with kernel density estimation when locating minority neighbors."},
+          {key:"a", text:"ADASYN replaces the k-NN step entirely with kernel density estimation whenever it is locating the minority-class neighbors."},
           {key:"b", text:"ADASYN clips the interpolation coefficient λ to [0.2, 0.8] to avoid synthetic points landing on top of originals."},
-          {key:"c", text:"ADASYN generates more synthetic points around minority samples whose neighborhoods are dominated by majority, weighting by local difficulty.", correct:true},
+          {key:"c", text:"ADASYN makes more synthetic points around minority samples whose neighborhoods are majority-dominated, weighting by local difficulty.", correct:true},
           {key:"d", text:"ADASYN is identical to SMOTE except it uses cosine distance instead of Euclidean for the k-NN step."},
         ]}
         trap={<>(a) imports KDE machinery that ADASYN doesn't use. (b) invents a λ clipping rule. (d) reduces ADASYN to a distance-metric tweak — misses the per-sample density weighting that defines it.</>}
@@ -2225,7 +2225,7 @@ flowchart TD
         title="Q12 — Why does SMOTE inside a CV fold matter?"
         scenario={<><em>Discriminating insight:</em> the synthetic samples must be regenerated for each train fold rather than once globally. A junior runs SMOTE before splitting into 5 folds and reports suspiciously low variance across folds.</>}
         options={[
-          {key:"a", text:"Re-run SMOTE on each train fold so the validation fold contains only original rows rather than synthetic offspring of those rows.", correct:true},
+          {key:"a", text:"Re-run SMOTE on each train fold, so the val fold has only original rows rather than synthetic offspring of them.", correct:true},
           {key:"b", text:"SMOTE-once-then-CV is fine because the synthetic samples carry the same distribution as the originals."},
           {key:"c", text:"Per-fold SMOTE is needed only when k > 1; for k=1 the interpolation commutes with the train/val split."},
           {key:"d", text:"Per-fold SMOTE is needed only when class weights are also enabled in the loss function."},
@@ -2258,7 +2258,7 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> deep models have so many parameters that the manufactured-data trick provides less marginal signal than for shallow models. A coworker reports SMOTE gave +3 F1 on logistic regression and +0.2 on a ResNet.</>}
         options={[
           {key:"a", text:"Deep models bypass the input space entirely via embeddings, so SMOTE in input space is irrelevant to their loss."},
-          {key:"b", text:"Synthetic SMOTE points live on the convex hull of training minority; deep models can already interpolate that hull internally, so marginal benefit is small.", correct:true},
+          {key:"b", text:"Synthetic points live on the convex hull of training minority; deep models already interpolate that hull internally, so the benefit is small.", correct:true},
           {key:"c", text:"Deep models compute their own implicit SMOTE during backpropagation, which makes external oversampling redundant in practice."},
           {key:"d", text:"SMOTE conflicts with the dropout regularizer used in deep models and is automatically disabled by frameworks like PyTorch."},
         ]}
@@ -2289,7 +2289,7 @@ flowchart TD
         title="Q16 — SMOTE produces synthetic points that hurt majority recall — why?"
         scenario={<><em>Discriminating insight:</em> synthetic minority points planted inside majority territory force the boundary to shift outward. You SMOTE aggressively and now the model misclassifies easy majority rows.</>}
         options={[
-          {key:"a", text:"k-NN can pick a minority neighbor across a class boundary on concave manifolds; synthetics land in majority territory and pull the boundary outward.", correct:true},
+          {key:"a", text:"On concave manifolds k-NN can pick a minority neighbor across the boundary; synthetics land in majority territory and pull the boundary out.", correct:true},
           {key:"b", text:"Class-weighted loss interacts multiplicatively with SMOTE, doubling the minority gradient and triggering majority underfitting."},
           {key:"c", text:"SMOTE's interpolation coefficient λ defaults to 1.0 in scikit-learn, which extrapolates rather than interpolates."},
           {key:"d", text:"SMOTE inflates the training set size beyond what the model can fit, causing underfit on majority."},
@@ -2322,7 +2322,7 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> SMOTE adds synthetic points but doesn't replace originals — both are in the final training set. A reviewer asks whether you should drop the originals after generating synthetics.</>}
         options={[
           {key:"a", text:"Original minority points should be dropped to prevent the model from memorizing them; only synthetics remain."},
-          {key:"b", text:"SMOTE augments — originals are kept and synthetics are added on top, giving the model both anchor points and interpolated variation.", correct:true},
+          {key:"b", text:"SMOTE augments — originals are kept and synthetics added on top, giving both anchor points and interpolated variation.", correct:true},
           {key:"c", text:"SMOTE replaces originals with synthetics in scikit-learn's default implementation."},
           {key:"d", text:"Originals are kept only when k > 5; for k ≤ 5 they're replaced to prevent local overfitting."},
         ]}
@@ -2355,7 +2355,7 @@ flowchart TD
         options={[
           {key:"a", text:"SMOTE doesn't support multi-class; you must binarize the problem with one-vs-rest first."},
           {key:"b", text:"Multi-class SMOTE pools all minority classes into one synthetic super-class then assigns labels by majority vote."},
-          {key:"c", text:"SMOTE runs independently per minority class — it interpolates within each class to bring its count up to a target, and never mixes classes.", correct:true},
+          {key:"c", text:"SMOTE runs per minority class — it interpolates within each class up to a target count and never mixes classes.", correct:true},
           {key:"d", text:"In multi-class, SMOTE switches to extrapolation to keep synthetic points outside the convex hulls of other classes."},
         ]}
         trap={<>(a) is wrong — both imblearn's SMOTE and most variants natively support multi-class. (b) invents a pooling rule. (d) imagines a hull-aware extrapolation that doesn't exist.</>}
@@ -2369,7 +2369,7 @@ flowchart TD
         title="Q21 — SMOTE's convex-hull assumption — when is it false?"
         scenario={<><em>Discriminating insight:</em> SMOTE assumes the minority manifold is convex; many real manifolds aren't. A statistician asks when this assumption breaks.</>}
         options={[
-          {key:"a", text:"On a non-convex minority manifold (donut, two clusters), the line segment between two minority points can exit the manifold into majority territory.", correct:true},
+          {key:"a", text:"On a non-convex minority manifold (donut, two clusters), the segment between two minority points can exit into majority territory.", correct:true},
           {key:"b", text:"The convexity assumption is only violated in unsupervised problems, not in supervised classification with SMOTE."},
           {key:"c", text:"Non-convex minority manifolds are still valid as long as the imbalance ratio stays below 100:1."},
           {key:"d", text:"SMOTE secretly fits a Voronoi tessellation of the minority class and so doesn't require convexity."},
@@ -2434,8 +2434,8 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> SMOTE has known failure modes; the diagnosis depends on which one applies. A senior MLE reports SMOTE drops their fraud-detection AUPRC consistently across folds.</>}
         options={[
           {key:"a", text:"SMOTE has subtle bugs in the scikit-learn implementation; switch to imblearn's version which handles edge cases correctly."},
-          {key:"b", text:"Likely causes: categorical features interpolated as continuous, label noise amplified, high-dimensional k-NN broken, or SMOTE applied before CV split.", correct:true},
-          {key:"c", text:"SMOTE always helps on imbalanced problems; the reported result must be a measurement error."},
+          {key:"b", text:"Likely: categorical features interpolated as continuous, label noise amplified, high-dim k-NN broken, or SMOTE applied before the CV split.", correct:true},
+          {key:"c", text:"SMOTE always helps on any imbalanced problem, so the reported result here must simply be some kind of measurement error."},
           {key:"d", text:"SMOTE only helps for ratio < 10:1; for any larger imbalance it should be replaced with naive duplication."},
         ]}
         trap={<>(a) is the "blame the library" shortcut. (c) is dogmatic — SMOTE doesn't always help. (d) reverses the truth — SMOTE was designed for severe imbalance.</>}
