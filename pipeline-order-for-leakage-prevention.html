@@ -1487,7 +1487,7 @@ flowchart TD
         ]}
         trap={<>(d) and (e) are the correct NON-answers, and the discipline test is exactly telling them from (a-c): a transform leaks only if it ESTIMATES A PARAMETER from the data it sees. log(x) and fixed-vocabulary one-hot estimate nothing; scalers, imputers, and target encoders estimate μ/σ, fill values, and per-category label means.</>}
         lens={<>The boundary is not "is it preprocessing?" but "does <code>.fit</code> learn a number from the rows?" Anything that does — scalers, imputers, quantile clippers, PCA, feature selectors, vocabularies, target encoders, SMOTE — must see train only; anything stateless (row-wise math, schema-fixed encodings, domain-constant thresholds) is safe before the split. Memorize the QUESTION, not a list: the list changes, the question does not.</>}
-        stretch={<>Binning with fixed cutpoints (age &lt;18/18-65/65+) is safe; quantile binning (<code>pd.qcut</code>) is not. State the one-sentence rule that separates them.</>}
+        stretch={<>You add a feature that is the row's value divided by the column's global maximum. Safe before the split, or not? Apply the one-sentence test.</>}
       />
 
       {/* C — magnitude spectrum: scaler small, selection catastrophic */}
@@ -1495,7 +1495,7 @@ flowchart TD
         id="polp-p2"
         difficulty="hard"
         title="Two leaks, same 'preprocessing on all data' bug — why is one 0.5% and one catastrophic?"
-        scenario={<>Two teams commit the identical structural error: fit a preprocessor on all rows, then split and CV. Team A fit a StandardScaler; their honest AUC drops ~0.5% after the fix. Team B fit a SelectKBest that picks 100 of 20,000 features by correlation with the label; their AUC drops from 0.94 to 0.55. Same bug — why the 100× difference in damage?</>}
+        scenario={<>Two teams commit the identical structural error: fit a preprocessor on all rows, then split and CV. Team A fit a StandardScaler; their honest AUC drops ~0.5% after the fix. Team B fit a <VIS.Term def="A feature selector that keeps the K columns most statistically associated with the target and drops the rest.">SelectKBest</VIS.Term> that picks 100 of 20,000 features by correlation with the label; their AUC drops from 0.94 to 0.55. Same bug — why the 100× difference in damage?</>}
         options={[
           {key:"a", text:"Selection is a max-over-candidates search: the 100 best-correlated of 20,000 exploit noise coincidences, fabricating AUC on pure noise. A scaler's μ/σ are stable low-influence aggregates.", correct:true},
           {key:"b", text:"Team B simply had more features, and leakage scales linearly with feature count — 20,000 features leaks proportionally more than a handful of scaled columns."},
@@ -1512,7 +1512,7 @@ flowchart TD
         id="polp-p3"
         difficulty="hard"
         title="The categorical encoder that quietly copied the label"
-        scenario={<>A model on transaction data uses mean-target encoding for a high-cardinality <code>merchant_id</code> (most merchants appear a handful of times). Fit on the full dataset before splitting: offline AUC 0.97. In production: 0.71. The feature-importance chart shows the encoded merchant_id dominating.</>}
+        scenario={<>A model on transaction data uses <VIS.Term def="Replacing a category with the average target value for that category (each merchant_id → its historical fraud rate). Powerful, but it leaks the label if fit on all data.">mean-target encoding</VIS.Term> for a high-cardinality <code>merchant_id</code> (most merchants appear a handful of times). Fit on the full dataset before splitting: offline AUC 0.97. In production: 0.71. The feature-importance chart shows the encoded merchant_id dominating.</>}
         options={[
           {key:"a", text:"For rare categories the target-mean IS the row's own label, so full-data encoding copies y into the feature — an answer that vanishes in production.", correct:true},
           {key:"b", text:"High-cardinality categoricals always overfit; the fix is hashing merchant_id into fewer buckets, independent of when the encoding is fit."},
@@ -1563,7 +1563,7 @@ flowchart TD
         id="polp-p6"
         difficulty="hard"
         title="'Scaling before split is harmless, so pre-computing the target encoding is fine too'"
-        scenario={<>A senior reviewer waves through a PR: "we've always scaled before splitting — the leak is under 1% and nobody cares. This PR just extends the same up-front preprocessing to include the target encoding and the PCA, which are also preprocessing. Consistent and convenient." What is wrong with the reasoning?</>}
+        scenario={<>A senior reviewer waves through a PR: "we've always scaled before splitting — the leak is under 1% and nobody cares. This PR just extends the same up-front preprocessing to include the target encoding and the <VIS.Term def="Principal Component Analysis: rotates the features into new axes ordered by variance, keeping the top few. Its axes are estimated from the data, so it leaks if fit on all rows.">PCA</VIS.Term>, which are also preprocessing. Consistent and convenient." What is wrong with the reasoning?</>}
         options={[
           {key:"a", text:"It reasons by CATEGORY ('preprocessing') not by what each transform estimates — scaler ~0.5%, target encoder writes the label in, PCA uses held-out variance. One bucket, three blast radii.", correct:true},
           {key:"b", text:"Nothing is wrong: if scaling before split is an accepted team practice, applying the same policy uniformly to all preprocessing is the consistent engineering choice."},
@@ -1588,8 +1588,8 @@ flowchart TD
           {key:"d", text:"The gain is real but production lacks the balanced class ratio SMOTE created; oversampling the production stream would recover it."},
         ]}
         trap={<>(d) is a serious conceptual error dressed as a fix: you NEVER resample production traffic — the class ratio is a property of the world, and the model must be calibrated to it. The val "gain" was never real transfer; it was the model recognizing synthetic near-duplicates of its own val set.</>}
-        lens={<>SMOTE is a fit-able transform (it learns from the minority neighborhood) and therefore obeys the split rule — but its leak is geometric: an interpolated point between two real minority samples that end up on opposite sides of the split is a synthetic near-duplicate bridging train and val. The fix is order (split first, SMOTE the train fold only) enforced structurally: use imblearn's Pipeline, which applies samplers ONLY during fit and skips them at val/predict — sklearn's Pipeline cannot resample y at all.</>}
-        stretch={<>Why can't you put a plain sklearn Pipeline around SMOTE + model, and what specifically does imblearn.pipeline.Pipeline do differently?</>}
+        lens={<>SMOTE is a fit-able transform (it learns from the minority neighborhood) and therefore obeys the split rule — but its leak is geometric: an interpolated point between two real minority samples that end up on opposite sides of the split is a synthetic near-duplicate bridging train and val. The fix is order: split first, SMOTE the train fold only, never the val fold. (The next problem covers the library mechanics that make this automatic.)</>}
+        stretch={<>What cheap train-vs-val nearest-neighbor-distance check would have exposed the synthetic bridges before launch?</>}
       />
 
       {/* E — imblearn Pipeline mechanics */}
@@ -1699,7 +1699,7 @@ flowchart TD
         id="polp-p14"
         difficulty="medium"
         title="The median that knew the test set"
-        scenario={<>A tabular pipeline fills missing values with <code>SimpleImputer(strategy='median').fit_transform(X)</code> on the full dataset, then splits. A colleague argues this is safe: "the median is one robust number per column; a couple of test rows can't move it, so there's effectively no leak."</>}
+        scenario={<>A tabular pipeline fills missing values with <VIS.Term def="Filling in missing entries with an estimated value — here each column's median. The fill value is learned from data, so it obeys the split rule.">imputation</VIS.Term> via <code>SimpleImputer(strategy='median').fit_transform(X)</code> on the full dataset, then splits. A colleague argues this is safe: "the median is one robust number per column; a couple of test rows can't move it, so there's effectively no leak."</>}
         options={[
           {key:"a", text:"Usually small for a median but real — and the 'one robust number' reasoning fails for KNNImputer/IterativeImputer, whose fills depend on specific neighbor rows.", correct:true},
           {key:"b", text:"Correct: median imputation is provably leak-free because the median is a rank statistic, and rank statistics are invariant to which subset they are computed on."},
@@ -1716,8 +1716,8 @@ flowchart TD
         id="polp-p15"
         difficulty="hard"
         multiSelect
-        title="Three ways a split can be wrong — select every DISTINCT leakage class"
-        scenario={<>The Kapoor &amp; Narayanan 2023 survey found leakage across 17 scientific fields and grouped it into distinct types. Your reviewer lumps every split problem together as "leakage." Select every statement that correctly identifies a DISTINCT class from the others.</>}
+        title="Which of these are DISTINCT leakage classes — select all that apply"
+        scenario={<>The Kapoor &amp; Narayanan 2023 survey found leakage across 17 scientific fields and grouped it into distinct types. Your reviewer lumps every split problem together as "leakage." Select every statement that correctly names a leakage class DISTINCT from the others.</>}
         options={[
           {key:"a", text:"Preprocessing-on-all-data: a fitted transform (scaler, selector, encoder) saw val/test rows — a fitted-parameter problem, this page's subject.", correct:true},
           {key:"b", text:"Train/test contamination: duplicate or near-duplicate ROWS appear on both sides of the split — a row-membership problem, independent of any transform.", correct:true},
@@ -1727,7 +1727,7 @@ flowchart TD
         ]}
         trap={<>(d) files ordinary overfitting under "leakage" — they are different failures: overfitting is fitting noise in HONEST data, leakage is the evaluation seeing information it shouldn't. (e) conflates shortcut learning (a spurious-FEATURE problem — DeGrave et al.'s COVID-Xray scanner artifacts) with fitted-transform leakage; related in spirit, distinct in mechanism.</>}
         lens={<>Leakage is a family, not a single bug, and naming the class dictates the fix: preprocessing-on-all-data → fit inside the split (this page); row contamination → dedup across splits; temporal leakage → point-in-time features and time-based splits; shortcut learning → causal/robustness auditing of features. The survey's contribution was showing these recur across 17 fields precisely because "leakage" gets used as one word for several diseases. Diagnose the class before reaching for a fix.</>}
-        stretch={<>A feature store computing a 30-day average that includes the label event's own day — which class is that, and what is the standard fix?</>}
+        stretch={<>Which of these classes does a per-fold Pipeline fix, and which two does it do nothing for?</>}
       />
 
       {/* C — PCA before split */}
@@ -1752,7 +1752,7 @@ flowchart TD
         id="polp-p17"
         difficulty="hard"
         title="The TF-IDF vocabulary that read the test set"
-        scenario={<>An NLP pipeline calls <code>TfidfVectorizer().fit_transform(all_docs)</code> to build features, then splits into train/test. A reviewer asks what, if anything, leaked — the labels were never touched by the vectorizer.</>}
+        scenario={<>An NLP pipeline calls <VIS.Term def="TF-IDF turns text into numbers: term frequency weighted by how rare a word is across documents (inverse document frequency). Both the vocabulary and the rarity weights are learned from the corpus.">TfidfVectorizer</VIS.Term> (<code>TfidfVectorizer().fit_transform(all_docs)</code>) to build features, then splits into train/test. A reviewer asks what, if anything, leaked — the labels were never touched by the vectorizer.</>}
         options={[
           {key:"a", text:"Two leaks without touching labels: the VOCABULARY gains test-only tokens, and the IDF weights reflect test-document frequencies.", correct:true},
           {key:"b", text:"Nothing leaks: TfidfVectorizer is unsupervised, and since it never sees the labels the resulting features are safe to compute on all documents."},
@@ -1778,7 +1778,7 @@ flowchart TD
         ]}
         trap={<>(c) blames CV itself, exactly backwards: CV was not the problem, the selection OUTSIDE the CV loop was. Cross-validation is the fix when it wraps every data-dependent step; the studies performed selection once on all data and then cross-validated only the classifier. A single test set would have leaked identically if selection preceded it.</>}
         lens={<>This is the canonical real-world casualty of preprocessing-order leakage, and it names the fix precisely: EXTERNAL cross-validation (selection redone inside each fold) versus INTERNAL (selection once, on all data, then CV the model). The tell that a study has the bug: feature selection described as a preprocessing step before the CV section. The permuted-label check — honest methods score ~50% on shuffled labels, leaky ones still score high — is the diagnostic you can run on any suspicious pipeline.</>}
-        stretch={<>Design the permuted-label sanity check for a pipeline you inherited. What score on shuffled labels would prove a leak?</>}
+        stretch={<>Reading a published d≫n study, what one sentence in its methods section is the tell that it made this exact mistake?</>}
       />
 
       {/* D — 'refit on test so it matches' */}
