@@ -2311,7 +2311,7 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> what kind of estimator becomes biased when you drop incomplete rows under MAR? You are doing a quick "drop the nulls" pass before regression.</>}
         options={[
           {key:"a", text:"Nothing — complete-case analysis is unbiased under MAR because conditioning on the observed predictors removes the missingness dependence."},
-          {key:"b", text:"Observed rows over-represent subgroups with lower missingness, so marginal estimators (means, histograms) of the affected column are biased; conditional regression including the MAR driver remains unbiased.", correct:true},
+          {key:"b", text:"Observed rows over-represent low-missingness subgroups, so marginal estimators (means, histograms) are biased; conditional regression on the MAR driver stays unbiased.", correct:true},
           {key:"c", text:"Variances are biased upward because complete-case analysis discards information and the remaining rows are no longer representative."},
           {key:"d", text:"Only the regression intercept is biased; the slope coefficients remain unbiased under MAR by the Gauss-Markov property."},
         ]}
@@ -2376,7 +2376,7 @@ flowchart TD
         options={[
           {key:"a", text:"It never breaks because is_missing_X is just another feature and the model can learn any pattern it represents."},
           {key:"b", text:"It causes the model to overfit under MAR because the indicator gives the optimizer an extra degree of freedom that wasn't there in the underlying data-generating process."},
-          {key:"c", text:"It induces collinearity between the indicator and the MAR-driving covariate, making coefficient estimates on each unstable and harder to interpret — predictions can still benefit, interpretation suffers.", correct:true},
+          {key:"c", text:"It induces collinearity between the indicator and the MAR-driving covariate, so coefficients are unstable — predictions can still benefit, interpretation suffers.", correct:true},
           {key:"d", text:"It breaks only when the dataset is MNAR because the indicator cannot represent dependence on the unobserved value itself."},
         ]}
         trap={<>(a) is the naive "more features always helps" view. (b) confuses indicator addition with model capacity — a single 0/1 column does not cause overfitting under MAR. (d) restricts the failure mode to MNAR, missing the MAR collinearity case.</>}
@@ -2392,7 +2392,7 @@ flowchart TD
         options={[
           {key:"a", text:"Always drop columns above 50% missingness; imputation noise dominates any remaining signal beyond that threshold."},
           {key:"b", text:"Always keep and impute because dropping a column discards rows worth of information that could have helped predict the target."},
-          {key:"c", text:"Depends on the missingness regime, the observed-row signal strength, and whether the missingness itself encodes useful information; no fixed threshold applies.", correct:true},
+          {key:"c", text:"Depends on the missingness regime, observed-row signal strength, and whether missingness itself encodes information; no fixed threshold applies.", correct:true},
           {key:"d", text:"Drop unless the column is MCAR; the high missingness rate amplifies bias under MAR or MNAR to unusable levels."},
         ]}
         trap={<>(a) and (d) propose fixed thresholds that ignore signal strength. (b) ignores the noise cost of high imputation rates.</>}
@@ -2615,7 +2615,7 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> what role does an auxiliary variable play in the MICE imputation model that it does not play in the substantive analysis model? You are deciding whether to include extra columns in the MICE feature set.</>}
         options={[
           {key:"a", text:"Auxiliary variables stabilize convergence of the iterative imputation loop without affecting the imputed values themselves."},
-          {key:"b", text:"Auxiliary variables strengthen the MAR assumption by capturing more drivers of missingness; if they correlate with both the missing values and the missingness indicator, they reduce residual MNAR-like bias.", correct:true},
+          {key:"b", text:"Auxiliary variables strengthen the MAR assumption by capturing more drivers of missingness; correlating with both the values and the indicator, they reduce residual MNAR bias.", correct:true},
           {key:"c", text:"Auxiliary variables increase sample size by allowing rows with missing analysis-model columns to still inform the imputation; this is the only role they play."},
           {key:"d", text:"Auxiliary variables decorrelate the imputation residuals with the analysis-model residuals; this is required for Rubin's variance formula to hold."},
         ]}
