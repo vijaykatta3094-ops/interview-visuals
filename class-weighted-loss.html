@@ -2127,7 +2127,7 @@ flowchart TB
         options={[
           {key:"a", text:"Class weighting preserves calibration because cross-entropy is invariant under positive scalar multiplication; oversampling changes the loss function shape."},
           {key:"b", text:"Both preserve calibration; mis-calibration claims about oversampling are due to insufficient training epochs in the cited studies."},
-          {key:"c", text:"Class weighting leaves the empirical class prior P(y=c) in the training data unchanged; oversampling pushes it toward 50/50, so the model's outputs reflect the resampled prior, not reality.", correct:true},
+          {key:"c", text:"Class weighting leaves the empirical prior P(y=c) unchanged; oversampling pushes it toward 50/50, so outputs reflect the resampled prior, not reality.", correct:true},
           {key:"d", text:"Class weighting uses a calibrated softmax internally; oversampling uses a sharpened softmax that compresses predicted probabilities toward 0 and 1."},
         ]}
         trap={<>(a) gets the right answer for the wrong reason — invariance under scalar multiplication isn't the mechanism. (b) denies a well-documented effect. (d) invents a softmax variant.</>}
@@ -2187,7 +2187,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> class weights tune training-time gradient allocation. Recall at a precision target is a deployment-time operating-point choice, controlled by the threshold.</>}
         options={[
           {key:"a", text:"Raise w_pos to ~20 and retrain — the higher weight will boost recall by directly increasing the rare class's gradient contribution.",},
-          {key:"b", text:"Sweep the decision threshold lower; class weights affect training, but recall@precision is determined by the operating-point threshold on the calibrated score.", correct:true},
+          {key:"b", text:"Sweep the decision threshold lower; class weights affect training, but recall@precision is set by the operating-point threshold on the score.", correct:true},
           {key:"c", text:"Apply SMOTE on top of class weights; the synthetic minority samples will increase recall regardless of the operating point."},
           {key:"d", text:"Switch from BCE to focal loss with γ=5 — focal loss's confidence-adaptive weighting directly optimizes recall@precision."},
         ]}
@@ -2262,7 +2262,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> 'balanced' weights make the model see an effective 50:50 distribution in terms of gradient contribution, so it learns probabilities matching a 50:50 prior rather than the natural 99:1 prior.</>}
         options={[
           {key:"a", text:"A training bug — class weighting should leave the average predicted probability essentially unchanged when implemented correctly."},
-          {key:"b", text:"Working as designed: 'balanced' makes the model behave as if the dataset were 50:50, so outputs reflect the balanced prior. Recalibrate post-hoc for real-world rates.", correct:true},
+          {key:"b", text:"Working as designed: 'balanced' makes the model behave as if the data were 50:50, so outputs reflect the balanced prior. Recalibrate post-hoc.", correct:true},
           {key:"c", text:"The base rate is too low for class weighting; switch to focal loss with γ=2 to recover the natural probability."},
           {key:"d", text:"Random initialization noise; retrain with a different seed and the average should converge to the natural 0.01 prior."},
         ]}
@@ -2309,7 +2309,7 @@ flowchart TB
         options={[
           {key:"a", text:"Increase the class weight to 10× the 'balanced' value to brute-force rare-class recall upward via a heavier gradient."},
           {key:"b", text:"Switch to a deeper model with more parameters; rare-class recall responds to model capacity once weights are set."},
-          {key:"c", text:"Compute training-set recall for the rare class. If train recall is also 5%, features lack signal; if train recall is 95%, it's overfitting or implementation.", correct:true},
+          {key:"c", text:"Compute train-set recall for the rare class. If it is also 5%, features lack signal; if it is 95%, the issue is overfitting or implementation.", correct:true},
           {key:"d", text:"Apply SMOTE in addition to class weights — synthetic minority samples will improve recall when 'balanced' alone underperforms."},
         ]}
         trap={<>(a), (b), (d) jump to fixes without diagnosing. (c) splits the failure modes apart.</>}
@@ -2385,7 +2385,7 @@ flowchart TB
         options={[
           {key:"a", text:"Re-train with w_pos halved to flatten the precision-recall curve; halving the class weight stabilizes the PR shape."},
           {key:"b", text:"Switch to ROC-AUC as the operating metric; PR curves under class imbalance are unreliable and should be discarded."},
-          {key:"c", text:"Pick the threshold on a held-out validation set at the precision target you need; class weights are training-time, thresholds are deployment-time.", correct:true},
+          {key:"c", text:"Pick the threshold on a held-out val set at the precision target you need; class weights are training-time, thresholds are deployment-time.", correct:true},
           {key:"d", text:"Apply SMOTE — synthetic minority samples will smooth the PR curve and reduce threshold sensitivity."},
         ]}
         trap={<>(a) re-trains when the issue is threshold. (b) discards the right metric for imbalance. (d) adds complexity instead of solving the threshold question.</>}
@@ -2399,7 +2399,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> class_weight assigns weight by CLASS LABEL (one value per class). sample_weight assigns weight per ROW (one value per sample).</>}
         options={[
           {key:"a", text:"They are aliases — sklearn translates class_weight to sample_weight internally; either argument has identical effect."},
-          {key:"b", text:"Use class_weight for class imbalance (per-class scalar); use sample_weight for per-row weighting (e.g., per-customer importance, recency, label confidence).", correct:true},
+          {key:"b", text:"Use class_weight for class imbalance (per-class scalar); use sample_weight for per-row weighting (per-customer importance, recency, label confidence).", correct:true},
           {key:"c", text:"Always prefer sample_weight — it generalizes class_weight and is faster on GPU; class_weight is deprecated since sklearn 1.0."},
           {key:"d", text:"sample_weight is for regression; class_weight is for classification. They cannot both be passed to a classifier."},
         ]}
@@ -2414,7 +2414,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> 95% background is dense but well shy of extreme dense-detection. Multiple losses (Dice, weighted CE, focal) are reasonable; weighted CE is the simplest first move.</>}
         options={[
           {key:"a", text:"No — class-weighted CE is for tabular binary problems only; segmentation requires Dice loss by convention."},
-          {key:"b", text:"Yes — weighted CE with inverse-frequency pixel-class weights is the simplest first move; if it underperforms, try Dice or focal or a combination.", correct:true},
+          {key:"b", text:"Yes — weighted CE with inverse-frequency pixel-class weights is the simplest first move; if it underperforms, try Dice or focal.", correct:true},
           {key:"c", text:"No — segmentation requires focal loss at γ=5 to handle the per-pixel imbalance; weighted CE always under-performs."},
           {key:"d", text:"Yes — segmentation always uses class-weighted CE; Dice and focal are research-only and rarely used in production."},
         ]}
