@@ -1460,6 +1460,425 @@ flowchart TD
         On small datasets, give up the 20% test holdout — do nested CV: outer loop picks final score, inner loop picks HPO. More expensive but estimator-efficient.
       </VIS.Callout>
     </VIS.Section>
+
+    <VIS.Section id="sec-drill" title="Test yourself — trap drills">
+      <p>
+        Twenty-four problems on what each split is for, the selection-bias mechanics of reusing an estimate, and the production discipline — sizing, hashing, leaderboards, benchmark rot. Decoys are defensible somewhere; the scenario carries the discriminating detail.
+      </p>
+
+      {/* A1 — role separation (warm-up) */}
+      <VIS.TrapProblem
+        id="tvt-p1"
+        difficulty="medium"
+        title="'Val is tiny — let's early-stop on the test set, we only report once anyway'"
+        scenario={<>A teammate training a ranking model proposes: "our val set is only 8k rows and noisy, so I will pick the stopping epoch on the 100k TEST set — we still report the test number just once, at that chosen epoch, so the single-use rule is respected."</>}
+        options={[
+          {key:"a", text:"Picking the stopping epoch IS a decision made from test — the reported number is now a max over checkpoints on the same data, optimistic by construction.", correct:true},
+          {key:"b", text:"This is fine: the single-use rule counts how many numbers you REPORT from test, and one reported number is one use."},
+          {key:"c", text:"This is fine if the epoch is chosen by smoothed test loss rather than raw test loss, since smoothing removes the selection noise being exploited."},
+          {key:"d", text:"The problem is only the size mismatch: once val is grown to match test at 100k rows, stopping on either set is statistically equivalent."},
+        ]}
+        trap={<>(b) is the accounting trick everyone tries once: counting REPORTS instead of DECISIONS. The test set was consulted at every epoch to pick the winner; that consultation is the use. Reporting once afterwards just hides the other looks.</>}
+        lens={<>The rule protecting the test set is about information flow, not arithmetic: any decision conditioned on a test readout (stopping epoch, threshold, model pick) converts test into a validation set. Early stopping is model selection over T checkpoints — a max over correlated noisy estimates — so the chosen checkpoint's test score inherits selection optimism. Fix the actual complaint instead: a noisy val set wants smoothing, patience, or more rows moved from train.</>}
+        stretch={<>Pre-2015 deep-learning papers routinely reported "best test error over epochs." Which later norm fixed this, and what does it cost?</>}
+      />
+
+      {/* A2 — k-fold replaces val, not test; nested CV */}
+      <VIS.TrapProblem
+        id="tvt-p2"
+        difficulty="hard"
+        title="n=90: 'we used 10-fold CV, so we don't need a test set'"
+        scenario={<>A biotech team with n=90 patients tunes 60 hyperparameter configs by 10-fold CV and reports the best config's CV accuracy (0.86) as the paper's headline generalization estimate: "every sample was validated out-of-fold, so the estimate is unbiased and a held-out test set would waste precious data."</>}
+        options={[
+          {key:"a", text:"Out-of-fold discipline makes ONE config's estimate honest; reporting the max over 60 configs is a selection on the same folds — nested CV (or a real test set) is what an unbiased headline needs.", correct:true},
+          {key:"b", text:"They are right: k-fold CV is specifically designed so that no sample is ever both trained and validated on, which removes selection bias for any number of configs."},
+          {key:"c", text:"The design fails only because 10 folds at n=90 gives 9-sample validation folds; 3-fold CV would make the per-fold estimates stable enough to compare 60 configs safely."},
+          {key:"d", text:"CV is invalid for hyperparameter tuning altogether; tuning requires a single fixed val split so that every config sees identical validation data."},
+        ]}
+        trap={<>(b) confuses two biases: CV kills the TRAIN-ON-YOUR-VAL bias for each single model, and does nothing about the MAX-OVER-MODELS bias — Cawley &amp; Talbot's point, and Varma &amp; Simon showed non-nested CV reporting near-zero error on pure noise at exactly these sample sizes.</>}
+        lens={<>k-fold CV is a val-set SUBSTITUTE, not a test-set substitute. Whatever data answers "which config wins?" cannot also answer "how good is the winner?" — at any n, but catastrophically at n=90 where the winner's-luck term dominates. <VIS.Term def="Cross-validation with two loops: an inner loop picks hyperparameters, an outer loop the inner never saw estimates the chosen procedure's performance.">Nested CV</VIS.Term> gives both answers from small data by paying k× more compute; the outer estimate scores the selection PROCEDURE, not one frozen model.</>}
+        stretch={<>Nested CV's outer loop may pick different configs in different outer folds. Why is that a feature of the estimate rather than a bug?</>}
+      />
+
+      {/* A3 — counterfactual: what the untouched holdout buys */}
+      <VIS.TrapProblem
+        id="tvt-p3"
+        difficulty="hard"
+        title="Quantify what the untouched holdout actually bought you"
+        scenario={<>Two teams tuned the same model family with 200 configs each. Team A tuned on val (n=5,000) and then scored its single chosen model once on an untouched test set. Team B, with the same data budget, merged everything into one big val set and reports the best config's score on it. Both scores print as 0.84. What is the difference between the two 0.84s?</>}
+        options={[
+          {key:"a", text:"Team A's number estimates its chosen model without bias; Team B's is the max of 200 noisy estimates — overstated by the expected-maximum inflation.", correct:true},
+          {key:"b", text:"No statistical difference — the same data volume backed both numbers, and expected values do not depend on how the data was partitioned."},
+          {key:"c", text:"Team B's number is actually MORE reliable: its estimate used twice the rows, so its variance is half of Team A's."},
+          {key:"d", text:"Team A's number is worse: scoring only once means it carries a full standard error, while Team B's repeated evaluations average the noise away."},
+        ]}
+        trap={<>(c) and (d) are both true statements about VARIANCE hiding the lie about BIAS: Team B's estimator is indeed lower-variance — around the wrong center. A tight interval around an inflated value is worse than an honest wide one, and no amount of averaging over the SAME selection removes the selection.</>}
+        lens={<>Unbiasedness is the entire product the holdout sells. The max of K near-tied estimates sits ≈2.75σ above truth at K=200 (the √(2 ln K) asymptotic slightly overstates the exact expected max). Team A paid variance (smaller test set) to buy zero bias; Team B bought variance reduction with bias it cannot measure. When two protocols print the same number, ask what the number ESTIMATES before asking how precise it is.</>}
+        stretch={<>If Team B honestly reported "best-of-200 on shared val," how could a reader de-bias it approximately, knowing only K and the val size?</>}
+      />
+
+      {/* A4 — offline test vs online A/B */}
+      <VIS.TrapProblem
+        id="tvt-p4"
+        difficulty="hard"
+        title="Perfect test discipline, wrong launch call"
+        scenario={<>Your team's discipline is exemplary: time-split test set, touched once, +2.1% <VIS.Term def="Normalized Discounted Cumulative Gain — a ranking metric that rewards putting the best items at the top positions.">NDCG</VIS.Term> over the incumbent ranker, tight interval. Leadership reluctantly agrees to the A/B but asks you to state PRECISELY why the offline number cannot substitute for it — "everyone says offline is not online; give me the actual mechanism." Which reason is load-bearing?</>}
+        options={[
+          {key:"a", text:"Counterfactual coverage: the new ranker's top slots hold items the old policy rarely showed — their true outcomes are ABSENT from the log, not mis-measured in it.", correct:true},
+          {key:"b", text:"Metric translation: NDCG correlates imperfectly with watch-time and revenue, so the experiment is needed to convert ranking quality into the business currency."},
+          {key:"c", text:"Staleness: the test window is weeks old by launch day, so the +2.1% has partially decayed and must be re-measured on current traffic."},
+          {key:"d", text:"Uncertainty: a single test read yields a point estimate, and only a live experiment provides the repeated measurements needed for a confidence interval."},
+        ]}
+        trap={<>(b) and (c) are real, secondary concerns — and both are PATCHABLE offline (better-correlated metrics, a fresher holdout). The counterfactual hole is not: the outcomes the new policy needs are missing DATA, and no reweighting of rows you never logged can conjure them. (d) is simply false — the test estimate has a perfectly good interval.</>}
+        lens={<>The load-bearing distinction: offline evaluation scores your model on outcomes the OLD policy generated; deployment asks about outcomes the NEW policy would generate — intervention effects, position bias, and feedback loops all live in that gap, and the gap is a data-ABSENCE problem, not a data-quality problem. That is why chronology (a time split) does not close it: time-splitting fixes leakage, not coverage. Off-policy estimators (inverse propensity weighting) try to bridge it from the log — and blow up in variance exactly when the two policies disagree most, which is when you care.</>}
+        stretch={<>Name the logging intervention that makes future offline evaluation LESS blind to new policies — and its user-experience cost.</>}
+      />
+
+      {/* B1 — split sizing: absolute n, not fractions */}
+      <VIS.TrapProblem
+        id="tvt-p5"
+        difficulty="hard"
+        title="The 60/20/20 rule meets a 50-million-row table"
+        scenario={<>A platform doc mandates 60/20/20 splits "per ML best practice." Your click dataset has 50M rows. An engineer objects that 10M test rows is absurd; a reviewer counters that shrinking the test share below 20% "reduces statistical power below the standard." Who is right, and by what math?</>}
+        options={[
+          {key:"a", text:"The engineer: precision is set by ABSOLUTE test size (SE ≈ √(p(1−p)/n)) — ~500k rows puts the 95% CI near ±0.14%, so a 98/1/1-style split returns millions of rows to training.", correct:true},
+          {key:"b", text:"The reviewer: split FRACTIONS are what statistical guarantees are stated in, since sampling theory scales with the proportion of data held out."},
+          {key:"c", text:"Neither: at 50M rows, sampling error is negligible for any split, so the test set can safely be a fixed 1,000-row sample maintained by hand."},
+          {key:"d", text:"The engineer, but for a different reason: large test sets overfit to themselves over time, so smaller test sets are intrinsically more trustworthy."},
+        ]}
+        trap={<>(c) overshoots into the opposite failure: 1,000 rows gives ±3% on accuracy at 95% confidence — worse than most launch deltas you need to detect. The right statement is "n_test should be sized to the effect you must resolve," not "any n will do at scale."</>}
+        lens={<>Confidence intervals never see your split fraction — only n. ±3% at n=1,000, ±1% at 10,000, ±0.1% near a million (binomial at p≈0.5): size test (and val) by the smallest delta that changes a decision, then give everything else to training. The 60/20/20 folklore is a small-data heuristic from the era when 20% WAS a few thousand rows. Fraction-thinking wastes exactly the resource — training data — that moves the model.</>}
+        stretch={<>Val needs MORE rows than this logic suggests when you compare many near-tied configs. Which quantity from the selection-bias drills sets val's size?</>}
+      />
+
+      {/* B1b — resolving small deltas: paired tests */}
+      <VIS.TrapProblem
+        id="tvt-p6"
+        difficulty="hard"
+        title="+0.8% on a 1,000-row val set — promote it?"
+        scenario={<>Your candidate model beats the incumbent by +0.8% accuracy on the shared 1,000-row val set (78.4% vs 77.6%). The promotion checklist only requires "val improvement." Before you sign: the binomial standard error at this n is about ±1.3% per model, and the two models disagree on just 74 of the 1,000 rows.</>}
+        options={[
+          {key:"a", text:"+0.8% is inside one standard error — a coin flip. The 74 disagreement rows are the real evidence: a paired McNemar test on them resolves far smaller deltas.", correct:true},
+          {key:"b", text:"+0.8% is real: both models were scored on identical rows, so sampling noise cancels and any positive gap is significant by construction."},
+          {key:"c", text:"The gap is unresolvable at any n_val because accuracy is a discrete metric; only continuous metrics like log-loss can distinguish models this close."},
+          {key:"d", text:"Promote if the gap persists across 5 random re-splits of train/val; agreement across re-splits substitutes for a significance test."},
+        ]}
+        trap={<>(b) contains the right instinct — shared rows DO cancel most noise — wired to the wrong conclusion: the cancellation is exactly why you must test on the DISAGREEMENT rows (McNemar's 74), not why any positive gap counts. The paired structure is an opportunity for rigor, not an exemption from it.</>}
+        lens={<>On paired predictions, the whole comparison lives in the discordant cells: 74 disagreements need about a 46-28 split (two-sided) to clear 5% — and the scenario's +8 net rows is only a 41-33 split, deep inside noise. <VIS.Term def="A paired significance test for classifiers scored on the same examples: it asks whether the model-A-right/model-B-wrong count beats the reverse count more than chance allows.">McNemar's test</VIS.Term> uses this to resolve deltas that independent test sets never could. (d) re-splitting checks split-sensitivity, and quietly multiplies your selection count by 5.</>}
+        stretch={<>Why does the SAME +0.8% become decisively significant if the two models disagree on 600 of 1,000 rows with the same net gap?</>}
+      />
+
+      {/* B4 — when shuffling is the bug */}
+      <VIS.TrapProblem
+        id="tvt-p7"
+        difficulty="hard"
+        title="The dataset where shuffling before splitting IS the leak"
+        scenario={<>A fraud team predicts chargebacks from transaction sequences: 9M transactions from 400k merchants over 26 months, several near-duplicate transactions per merchant burst, strong seasonal drift, and the deployment question is "how will this do on NEXT quarter's merchants and traffic?" The pipeline begins: <code>df.sample(frac=1).pipe(train_test_split)</code>.</>}
+        options={[
+          {key:"a", text:"Shuffling scatters each merchant's near-duplicates and future seasons across the splits — the test score then rewards memorizing merchants and a future the model saw.", correct:true},
+          {key:"b", text:"Shuffling is required here: without it, autocorrelated rows violate the iid assumption that train/test evaluation depends on, biasing the estimate."},
+          {key:"c", text:"Shuffling is harmless because the split is random either way; the real fix is stratifying by the chargeback label so both splits share the base rate."},
+          {key:"d", text:"Shuffling is wrong only for the time dimension; merchant identity is a feature the model legitimately learns, so grouping by merchant would discard real signal."},
+        ]}
+        trap={<>(b) inverts the logic beautifully: rows ARE autocorrelated — the <VIS.Term def="Independent and identically distributed: the textbook assumption that every row is an unrelated draw from one fixed distribution.">iid</VIS.Term> assumption fails — which is exactly why shuffling is a LEAK, not a fix — shuffling does not make dependent rows independent, it just distributes each dependency cluster across both sides of the split so the model gets graded on its own training neighborhoods.</>}
+        lens={<>Split design mirrors the deployment question: "next quarter's merchants and traffic" means split by TIME (train past → test future) and by MERCHANT GROUP where generalization to new merchants is claimed. Shuffle-then-split answers a different question — "can I fit this table?" (d) confuses learning merchant BEHAVIOR PATTERNS (fine) with being evaluated on merchants whose other rows sit in train (memorization credit). The split, not the model, decides which claim your metric supports.</>}
+        stretch={<>You need BOTH claims quantified: performance on returning merchants AND on brand-new ones. What two-way evaluation design gives each claim its own honest number?</>}
+      />
+
+      {/* B2 — exchangeability sophistry */}
+      <VIS.TrapProblem
+        id="tvt-p8"
+        difficulty="hard"
+        title="'Val and test are iid draws from the same distribution — tuning on test is harmless'"
+        scenario={<>A statistically-fluent colleague argues: "val and test are exchangeable samples from the same distribution. Tuning on test instead of val cannot introduce bias that tuning on val would not — the sets are interchangeable by construction. The taboo is superstition."</>}
+        options={[
+          {key:"a", text:"Exchangeability is true and irrelevant: selection biases WHICHEVER set it touches. Tuning on val spends val and leaves test honest; tune on test and no honest set remains.", correct:true},
+          {key:"b", text:"The colleague is right in theory; the taboo exists because test sets are usually collected later and differ distributionally, which is an engineering concern, not a statistical one."},
+          {key:"c", text:"The colleague is wrong because test sets are deliberately constructed to be harder than val sets, so tuning on test would over-regularize the model."},
+          {key:"d", text:"The colleague is right for a single tuning pass; the bias only appears when tuning iterates more than a handful of times on the same set."},
+        ]}
+        trap={<>The argument seduces because every sentence about the DATA is correct — the sets are exchangeable. The bias never lived in the data: it lives in the RELATIONSHIP between the estimate and the decisions conditioned on it. Selection contaminates whatever it touches; the discipline just designates one set it never touches.</>}
+        lens={<>Think of it as budget accounting, not set quality: you own two identical instruments; using one to steer necessarily miscalibrates its readings for the thing you steered toward; the taboo simply reserves the second instrument for the final measurement. (d) fails on Freedman's demonstration — ONE screening pass on noise manufactures significance; adaptivity has no free first hit. The colleague's argument, taken seriously, proves val's number is biased — which is true and is why we keep a test set at all.</>}
+        stretch={<>Restate the taboo in the language of adaptive data analysis: what exactly does the test set's "validity guarantee" quantify, and what spends it?</>}
+      />
+
+      {/* C1 — expected max of K estimates */}
+      <VIS.TrapProblem
+        id="tvt-p9"
+        difficulty="hard"
+        title="Put a number on the sweep's self-flattery"
+        scenario={<>A 100-config hyperparameter sweep on a 2,000-row val set (accuracy ≈ 90%, so per-config SE ≈ 0.67%) produces a "winner" at 92.1%, +1.8% over the incumbent. The configs are minor variations — plausibly near-equal in true accuracy. Roughly how much of the +1.8% should you expect to be selection artifact?</>}
+        options={[
+          {key:"a", text:"Nearly all of it: the expected maximum of ~100 near-tied noisy estimates sits ≈2.5 standard errors above truth — about +1.7% here — so the winner's margin is consistent with pure luck.", correct:true},
+          {key:"b", text:"About half: selection bias in a max-of-K grows linearly in K, contributing ~0.9% at K=100, with the remaining ~0.9% being genuine improvement."},
+          {key:"c", text:"Little of it: selection bias only appears when configs are evaluated on DIFFERENT validation rows; a shared val set gives every config the same noise, which cancels in the ranking."},
+          {key:"d", text:"None that matters: 2,000 rows is large enough that per-config noise (under 1%) cannot compound, whatever the number of configs."},
+        ]}
+        trap={<>(c) recycles the paired-comparison insight from a different drill into a false comfort: shared rows correlate the noise but do not remove each config's own wiggle, and the max still rides the largest positive wiggle. Correlation shrinks the effective K somewhat; it does not repeal the maximum.</>}
+        lens={<>The expected max of K standard normals is ≈ √(2 ln K): 1.5σ at K=10, 2.5σ at K=100, 3.2σ at K=1000 — growing with log K, not K (b's linearity is the innumerate version). At σ=0.67%, a 100-config sweep of near-equals hands its "winner" ≈+1.7% of pure selection. This one formula sizes val sets (σ must be small against √(2 ln K)·tolerance), explains leaderboard regression, and prices the re-test on untouched data that separates luck from lift.</>}
+        stretch={<>Your sweep's winner shows +1.8% on val but only +0.2% on a fresh holdout. Reconcile the pair of numbers with the formula.</>}
+      />
+
+      {/* C2 — adaptivity beats fixed-K; Blum-Hardt attack */}
+      <VIS.TrapProblem
+        id="tvt-p10"
+        difficulty="hard"
+        title="Climbing a leaderboard with zero signal"
+        scenario={<>A competitor on your internal leaderboard (n=10,000 private rows, scores rounded to 4 decimals, unlimited submissions) climbs steadily for two weeks — 40 submissions, each a tiny improvement. Their write-up later reveals the method: submit near-random prediction vectors, keep whichever scored higher, and combine the keepers. No features were ever used.</>}
+        options={[
+          {key:"a", text:"The adaptive-reuse attack: each submission conditions on previous scores (√(k/n)-scale extraction), and combining the keepers converts leaderboard noise into apparent skill.", correct:true},
+          {key:"b", text:"This is impossible as described: random vectors have expected accuracy 50%, and combining several cannot exceed the accuracy of the best individual one."},
+          {key:"c", text:"The flaw is the rounding: 4-decimal scores leak too little information per submission for any adaptive attack; the climb must have used a data leak instead."},
+          {key:"d", text:"The attack works but only on tiny test sets; at n=10,000 the per-query information is too small to accumulate a visible climb in 40 submissions."},
+        ]}
+        trap={<>(b) applies fixed-hypothesis intuition to an adaptive process: each keeper is selected FOR its positive alignment with the private set's noise, and an aggregate of positively-selected noise vectors is no longer random — it encodes the test labels a little more with every accepted query. That "cannot exceed the best individual" claim is precisely what selection breaks.</>}
+        lens={<>The gap between √(log k/n) (queries fixed in advance, union bound) and √(k/n) (each query may depend on all previous answers) is the entire subject of adaptive data analysis — Dwork et al.'s reusable-holdout paper and Blum &amp; Hardt's boosting attack are the canonical constructions, and this scenario is the latter almost verbatim. Leaderboards are adaptive-query machines; that is why real ones ration what their oracle reveals per query rather than trusting submitters.</>}
+        stretch={<>Rough bound: with 40 accepted probes against n=10,000 private rows, about how many accuracy points of pure noise-alignment could the attack bank?</>}
+      />
+
+      {/* C3 — early stopping's selection budget */}
+      <VIS.TrapProblem
+        id="tvt-p11"
+        difficulty="hard"
+        title="Is early stopping 'model selection' that poisons val? Sometimes."
+        scenario={<>Two workflows both early-stop on val loss. (i) A single model trained once, stopping at the best of ~90 epoch checkpoints, val reused afterward only for a sanity plot. (ii) An <VIS.Term def="Automated machine learning: systems that launch hundreds of training trials over architectures and hyperparameters, then pick the best trial.">AutoML</VIS.Term> sweep where 500 trials EACH early-stop on the same val set, then the best trial is picked by that same val loss. A reviewer flags both as "val contamination — early stopping is selection."</>}
+        options={[
+          {key:"a", text:"Both are selection, wildly different damage: 90 correlated checkpoints ≈ a few effective comparisons; 500 trials compound seriously — (ii) needs a fresh set.", correct:true},
+          {key:"b", text:"Neither is contamination: early stopping is part of TRAINING, not selection, since no human decision intervenes between epochs."},
+          {key:"c", text:"Both are equally fatal: any reuse of val across checkpoints invalidates it, so both workflows require a fourth split regardless of scale."},
+          {key:"d", text:"(i) is the dangerous one: within-run checkpoints share training data and therefore overfit val faster than independent AutoML trials do."},
+        ]}
+        trap={<>(c) is rigor theater — treating a ~2-effective-comparison bias (adjacent checkpoints correlate ~0.99; the max over them barely exceeds one draw) the same as a 500-way adaptive selection. Overcalibrated paranoia has a real cost: the fourth split it demands for case (i) comes out of training data for no measurable benefit.</>}
+        lens={<>Selection bias scales with EFFECTIVE comparisons, ≈ √(2 ln K_eff)·σ, and correlation is what discounts K down to K_eff: 90 checkpoints along one training curve are a few effective draws; 500 separately-initialized trials are hundreds. That is why the field's standard escalates with scale — val early-stopping is fine for single runs, while serious AutoML uses a 4-way split (train / early-stop / selection / test). Budget rigor where the arithmetic says the bias lives, not uniformly.</>}
+        stretch={<>Write the 4-way protocol for case (ii): which of the four sets does each of "stop each trial," "pick the trial," "report the number" consume?</>}
+      />
+
+      {/* C4 — retrain on train+val after selection (multi) */}
+      <VIS.TrapProblem
+        id="tvt-p12"
+        difficulty="hard"
+        multiSelect
+        title="Retraining on train+val after selection — select every TRUE caution"
+        scenario={<>Hyperparameters are frozen after a val-based search (the winner used early stopping at epoch 23 of a cosine LR schedule, weight decay 0.02, trained on the 80% train split). Following sklearn's <code>refit=True</code> spirit, the team retrains on train+val (100% of non-test data) before the single test evaluation. Select every caution that is genuinely TRUE.</>}
+        options={[
+          {key:"a", text:"The stopping point was calibrated to the 80% train size — on 25% more data, 'epoch 23' means a different number of optimizer steps and a different point on the LR schedule; transfer steps, not epochs.", correct:true},
+          {key:"b", text:"Regularization tuned at the smaller train size (weight decay, dropout) is now slightly too strong for the larger set — usually minor, occasionally visible.", correct:true},
+          {key:"c", text:"After the merge there is no val set left to catch a divergent or buggy retrain before it reaches the one-shot test evaluation.", correct:true},
+          {key:"d", text:"Retraining on train+val double-counts the val rows' influence, since they both selected the hyperparameters and now train the weights — this alone biases the TEST estimate upward."},
+          {key:"e", text:"The retrain invalidates the hyperparameter search entirely: choices made at 80% data are statistically meaningless at 100% and the search must be re-run nested."},
+        ]}
+        trap={<>(d) sounds like leakage accounting but muddles targets: hyperparameters chosen ON val slightly overfit val — that is why VAL's number is biased — while the untouched TEST estimate stays honest no matter what data trained the weights. Influence on training is not contamination of test.</>}
+        lens={<>Retraining on train+val at fixed hyperparameters is standard and usually correct — more data, same procedure (GridSearchCV institutionalizes it). The real cautions are mechanical: schedule-dependent quantities (stopping step, LR decay horizon, warmup fraction) were implicitly functions of dataset size, and the merge removes your canary for a broken retrain. (e) is (b) inflated to a superstition — mild mis-scaling is a known, bounded cost, not invalidation.</>}
+        stretch={<>Name a cheap canary for "the retrain diverged" that does not touch test and does not resurrect a val split.</>}
+      />
+
+      {/* D1 — 'only looked twice' */}
+      <VIS.TrapProblem
+        id="tvt-p13"
+        difficulty="hard"
+        title="'I only touched the test set twice'"
+        scenario={<>A candidate describes their capstone: "I evaluated on test, saw 71%, realized the tokenizer was mismatched, fixed it, and re-evaluated: 79%. That is my reported number. I only touched test twice, and the second run was measuring a bug fix, not tuning." Grade the methodology.</>}
+        options={[
+          {key:"a", text:"The second number is conditioned on the first: the fix was FOUND because test flagged it, and only number-improving fixes survive such loops — that is selection.", correct:true},
+          {key:"b", text:"Clean: bug fixes are corrections toward the true model, not hyperparameter choices, so re-evaluating after one is a fresh unbiased measurement."},
+          {key:"c", text:"Clean if the tokenizer bug is documented and the 71% is reported alongside the 79%, since transparency about all test readouts restores unbiasedness."},
+          {key:"d", text:"The problem is only sample reuse: had the second evaluation used a bootstrap resample of the test set, the two readouts would be independent."},
+        ]}
+        trap={<>(b) is the most human decoy — "it was a BUG, not tuning." The test set does not know your intentions. The debugging loop it triggered (look → change → look) is structurally the tuning loop, and only changes that IMPROVE the number survive such loops. Freedman's paradox needed just one screening pass on noise to fabricate significance.</>}
+        lens={<>Count DECISIONS conditioned on test, not touches or motives: look #1 was spent the moment the fix it inspired was accepted. Transparency (c) is good hygiene that changes what readers know, not what the estimator is; <VIS.Term def="Bootstrap resampling: drawing rows with replacement from the same dataset — a new arrangement of the same information.">resampling</VIS.Term> (d) reuses the same rows and fixes nothing. The honest paths after a test-triggered fix: report the pair as "test-influenced," validate the fix on val only, or refresh the test data for the final number. Adaptivity has no free first hit.</>}
+        stretch={<>Your val set catches the same tokenizer bug BEFORE any test read. Why is fixing it then completely uncontaminating for test?</>}
+      />
+
+      {/* D2 — 'bigger test set fixes adaptive overfitting' */}
+      <VIS.TrapProblem
+        id="tvt-p14"
+        difficulty="hard"
+        title="'Just make the test set huge and reuse it freely'"
+        scenario={<>Planning an org-wide benchmark, a staff engineer proposes: "adaptive overfitting scales like √(k/n), so we make n = 5 million rows and the bias is negligible for any realistic k. Then everyone can evaluate on it as often as they like, forever — governance solved by size."</>}
+        options={[
+          {key:"a", text:"Size buys rate, not immunity: k grows without bound over years of org-wide use, and the shared set slowly becomes the org's collective val set. Governance is still required.", correct:true},
+          {key:"b", text:"The proposal is sound: at n=5M the per-query leak is under 0.05%, and biases below measurement noise cannot accumulate into anything visible."},
+          {key:"c", text:"The proposal fails only because 5M labeled rows is too expensive to refresh; at that size, staleness — not adaptivity — is the binding constraint."},
+          {key:"d", text:"The proposal has it backwards: LARGER test sets leak faster because each query returns more precise information about more rows."},
+        ]}
+        trap={<>(b)'s "below noise cannot accumulate" is the exact mechanism adaptivity breaks: each sub-noise nudge is SELECTED FOR — kept when positive, dropped when negative — so thousands of them add coherently in one direction. Selection turns symmetric noise into drift; that is the whole lesson of the reusable-holdout line of work.</>}
+        lens={<>√(k/n) has two knobs, and the proposal fixes one while the other runs free — k grows with every model comparison, ablation, and dashboard refresh across every team, indefinitely. Size helps (it is a real knob) but the durable defenses manage k and its adaptivity: read budgets, versioned and refreshed benchmark suites, held-back final sets, or noise-mediated access (Thresholdout). "Solved by size" is how orgs end up with a beloved benchmark that quietly stopped measuring anything years ago.</>}
+        stretch={<>At n=5M and a ±0.05% decision tolerance, roughly what k of adaptive reads exhausts the budget — and how many quarters would a 40-team org take to spend it?</>}
+      />
+
+      {/* D3 — public LB vs local CV; shake-up */}
+      <VIS.TrapProblem
+        id="tvt-p15"
+        difficulty="hard"
+        title="Trust the public leaderboard or your local CV?"
+        scenario={<>Kaggle-style competition, final week. Your local 5-fold CV says model A beats model B by +0.4% (consistent across folds). The public leaderboard — scored on ~19% of the test data, which you have probed with ~90 submissions — says B beats A by +0.6%. You must pick two final submissions, graded on the unseen private split.</>}
+        options={[
+          {key:"a", text:"Trust local CV: far more effective data you have NOT selected against; 90 probes have adaptively overfit your picks to the small public split.", correct:true},
+          {key:"b", text:"Trust the public LB: it is drawn from the exact test distribution including any train/test drift, which local CV physically cannot see."},
+          {key:"c", text:"Split the difference: submit the two models ranked #1 by each signal, since with two slots the optimal play is always to hedge the sources."},
+          {key:"d", text:"Trust whichever signal has the larger nominal sample — the public split's absolute row count usually exceeds one CV fold's."},
+        ]}
+        trap={<>(b) names a real advantage (distribution match) that 90 probes have already spent: an estimate you have repeatedly selected against stops being an estimate of anything but your own selection. The public LB's distributional edge is worth less than its adaptive rot costs — which is what "shake-up" empirically demonstrates.</>}
+        lens={<>Rank signals by (data volume) × (how hard you have selected on them): local CV wins the product decisively at 90 submissions. Kaggle's institutional history — public-LB climbers falling hundreds of places on private (the Mercedes-Benz 2017 shake-up is the canonical case: tiny effective public split, high-variance metric) — is the winner's curse played out at scale, and "trust your CV" is the community's hardest-won folklore. (c) hedging two DIVERSE models is fine; hedging because you refuse to price the signals is not a strategy.</>}
+        stretch={<>When SHOULD the public LB override local CV? Name the two conditions (one about your CV design, one about train/test construction).</>}
+      />
+
+      {/* D4 — Recht: drop ≠ adaptive overfitting */}
+      <VIS.TrapProblem
+        id="tvt-p16"
+        difficulty="hard"
+        title="Accuracy fell 11% on the rebuilt test set — did years of reuse poison the benchmark?"
+        scenario={<>Researchers rebuild a famous test set by faithfully re-running its original collection pipeline (new images, same protocol). Every model drops 3-15% accuracy on the new set. A commentator concludes: "proof that the field overfit the old test set — years of adaptive benchmark reuse finally caught up." One detail complicates the story: models RANK almost identically on old and new sets, and the models most accurate on the old set drop the LEAST.</>}
+        options={[
+          {key:"a", text:"Rank preservation points away from adaptive rot, which would scramble ranks and punish best-on-old models hardest. The drop mostly measures replication's distribution gap.", correct:true},
+          {key:"b", text:"The commentator is right: a uniform accuracy drop on fresh data drawn by the same protocol is the definition of test-set overfitting."},
+          {key:"c", text:"The drop is evidence the NEW set is broken: a faithful replication should reproduce absolute accuracies within sampling error, so the pipeline must have drifted."},
+          {key:"d", text:"Neither story is testable: absolute drops and preserved ranks are statistically independent facts that cannot distinguish overfitting from distribution shift."},
+        ]}
+        trap={<>(b) reads only the headline number. Adaptive overfitting is SELECTIVE — it inflates the models that were tuned against the benchmark, which should reorder the leaderboard on fresh data and punish the best-on-old models hardest. The data shows the opposite (better-on-old = better-on-new, drops shrinking with quality), which is the signature of a harder-but-parallel test distribution.</>}
+        lens={<>This is Recht et al.'s CIFAR/ImageNet replication, and its two-sided lesson calibrates benchmark paranoia: absolute numbers are brittle (a faithful re-collection moved them 3-15% — (c) underestimates how much unmeasured latitude 'the same protocol' contains), while RANKINGS proved surprisingly robust to a decade of reuse. So use aged benchmarks to compare methods, distrust their absolute claims, and diagnose "overfit or shifted?" by checking rank stability and who drops most — not by the size of the drop alone.</>}
+        stretch={<>Why does the theory-predicted adaptive overfitting appear so weakly here, when leaderboard attacks (the random-vector climber) work so well? Name two structural differences.</>}
+      />
+
+      {/* E3 — sklearn split gotchas (multi) */}
+      <VIS.TrapProblem
+        id="tvt-p17"
+        difficulty="hard"
+        multiSelect
+        title="sklearn splitting — select every claim that is actually TRUE"
+        scenario={<>A new teammate is writing the data-splitting module for tabular pipelines and asks you to fact-check their assumptions about sklearn. Select every statement that is TRUE.</>}
+        options={[
+          {key:"a", text:"train_test_split shuffles by default — silently wrong for temporally ordered data unless shuffle=False (or TimeSeriesSplit) is chosen deliberately.", correct:true},
+          {key:"b", text:"A fixed random_state reproduces the same split membership only while the input rows (and their order) stay identical — regenerating the upstream table can silently reassign rows.", correct:true},
+          {key:"c", text:"The standard 60/20/20 idiom is two calls: peel 20% test, then test_size=0.25 of the remainder — passing stratify to BOTH calls when class balance matters.", correct:true},
+          {key:"d", text:"stratify=y guards against degenerate splits, so it works on any label column, including classes with a single member."},
+          {key:"e", text:"TimeSeriesSplit(shuffle=True) provides shuffled folds that still respect temporal ordering within each fold, for when you want both randomness and chronology."},
+        ]}
+        trap={<>(e) is a plausible-sounding API that deliberately does not exist — TimeSeriesSplit has no shuffle parameter BECAUSE "shuffled but chronological" is self-contradictory; expanding time-ordered folds are the entire point. (d) fails on the exact edge it claims to cover: stratification errors out on single-member classes (it cannot put one row on both sides).</>}
+        lens={<>The API's sharp edges cluster where library defaults meet data reality: shuffle=True assumes exchangeable rows (a modeling claim, not a default that should be silent); random_state pins the RNG, not your data pipeline — durable splits key on stable row identity (hashing an entity id) rather than position; and stratify needs every class to be splittable. Reading these as design lessons rather than trivia: every splitting default encodes an assumption about your data, and the module you are reviewing should surface those assumptions as explicit arguments.</>}
+        stretch={<>Why does the two-call 60/20/20 idiom stratify slightly differently than one three-way stratified split would — and when could that matter?</>}
+      />
+
+      {/* E2 — Friday page: salted hash() split */}
+      <VIS.TrapProblem
+        id="tvt-p18"
+        difficulty="hard"
+        title="Friday 3am: the same user is in train on one worker and test on another"
+        scenario={<>A distributed retraining job splits users deterministically — so the team believes — via <code>hash(user_id) % 100</code>: buckets 0-79 train, 90-99 test. A late-night audit finds test-set <VIS.Term def="Area under the ROC curve — a ranking-quality metric; 0.5 is coin-flip, 1.0 is perfect.">AUC</VIS.Term> drifting run to run, and the same user_id landing in train on one worker and test on another. The code has not changed in months.</>}
+        options={[
+          {key:"a", text:"Python's builtin hash() is salted per process for strings — each worker buckets the same user differently. Use a stable content hash of the id (crc32, md5, farmhash).", correct:true},
+          {key:"b", text:"The modulo is biased: hash values are not uniform mod 100, so buckets drift between runs; switching to a power-of-two bucket count restores determinism."},
+          {key:"c", text:"The workers see different DataFrame row orders, and hash-based splits depend on row position; sorting by user_id before splitting fixes the drift."},
+          {key:"d", text:"Someone set a different random seed per worker; unifying the global numpy/random seeds across the fleet makes hash() reproducible again."},
+        ]}
+        trap={<>(c) and (d) both patch the WRONG source of randomness — hash-of-id splits are position-independent by design, and hash() ignores numpy seeds entirely. The salt is process-level and deliberate (a security feature since Python 3.3); no amount of seeding or sorting reaches it.</>}
+        lens={<>Membership must be a pure function of a stable entity key — that is the whole contract: it survives dataset growth, keeps a user on one side across retrains (no slow leak of test users into train), and agrees across workers and languages. Builtin hash() breaks the contract silently and only in production (single-process notebooks never notice). Fix with a content hash — <code>zlib.crc32(user_id.encode()) % 100</code> — the same reason TFX uses Farm fingerprint for splits. Drifting eval metrics with unchanged code smells like nondeterministic membership before anything else.</>}
+        stretch={<>Entity-hash splits also quietly fix a leakage bug that fixed-fraction random re-splits reintroduce at every retrain. Which one?</>}
+      />
+
+      {/* E1 — benchmark rot governance */}
+      <VIS.TrapProblem
+        id="tvt-p19"
+        difficulty="hard"
+        title="The org benchmark that every quarterly launch has consulted since 2022"
+        scenario={<>Your org's ranking benchmark (400k rows, frozen 2022) is consulted by every team's launch reviews, dashboards, and ablations — thousands of adaptive reads over four years. A new-hire's audit shows models now beat it by margins that never materialize in A/B tests. Two camps form: "refresh the data" vs "add access controls." What does the failure mode actually demand?</>}
+        options={[
+          {key:"a", text:"Both — two clocks tick independently: adaptive reads spend the set's validity, and 2022 data drifts from 2026 traffic. Either fix alone leaves the other rot running.", correct:true},
+          {key:"b", text:"Refresh alone suffices: new data resets the adaptive-overfitting clock to zero, and the org's read patterns can stay as they are."},
+          {key:"c", text:"Access controls alone suffice: drift is already handled by the offline-vs-online gap every team knows about, so limiting reads is the only structural fix."},
+          {key:"d", text:"Neither helps: offline benchmarks are inherently unable to predict A/B outcomes, so the org should drop the benchmark rather than govern it."},
+        ]}
+        trap={<>(b) is the tempting reset button, and it works — for a while: the same thousand-reads-per-quarter culture spends the fresh set at the same rate, so you have bought a countdown, not a fix. Refresh cadence and read governance are the two knobs of one budget equation; (d) throws away the instrument because it was left uncalibrated.</>}
+        lens={<>A shared benchmark is a depleting resource with two independent depletion channels: adaptivity (k grows with every conditioned decision) and staleness (the world moves). Governance that works treats it like the mature orgs treat it — versioned, dated suites (MLPerf-style), read budgets or logged access, a held-back final split for launch decisions, scheduled refreshes — and treats "benchmark says +4%, A/B says +0%" as the audit signal that the budget ran out some time ago.</>}
+        stretch={<>Design the cheapest possible tripwire that detects benchmark rot BEFORE launch deltas stop replicating. What do you log, and what threshold page?</>}
+      />
+
+      {/* E6 — contamination: vendor aces the benchmark */}
+      <VIS.TrapProblem
+        id="tvt-p20"
+        difficulty="hard"
+        title="The vendor model that aces your public benchmark"
+        scenario={<>A vendor's foundation model scores 94% on your team's evaluation suite — built two years ago from a public dataset, its test split included. On your freshly-written internal tasks of matched difficulty it scores 71%. The vendor insists the 94% is legitimate: "we never trained on your test split; our corpus is just web-scale."</>}
+        options={[
+          {key:"a", text:"Web-scale corpora ingest public benchmarks wholesale — no targeting needed for memorization. The 23-point gap against fresh matched tasks IS the contamination measurement.", correct:true},
+          {key:"b", text:"The vendor is right: contamination requires supervised fine-tuning on the exact test labels, and pre-training on unlabeled text containing the questions cannot inflate task accuracy."},
+          {key:"c", text:"The gap mainly shows your fresh tasks are miscalibrated — matching difficulty across task sets is impossible, so the public benchmark remains the fairer comparison."},
+          {key:"d", text:"Both numbers are valid on their own distributions; for procurement, weight them by task-set size, which favors the far larger public benchmark."},
+        ]}
+        trap={<>(b) draws the contamination line where it is comfortable, not where the mechanism is: next-token pre-training on question-answer text IS training on the labels — no fine-tuning required. The GSM1k studies made exactly this measurable: models whose likelihood on the original benchmark text is high drop hardest on freshly-written equivalents.</>}
+        lens={<>Benchmark contamination is the train/test-duplicate problem at web scale (CIFAR's ~3-10% near-duplicate test images were the small-data ancestor). The working defenses are all freshness-based: newly-authored task sets (GSM1k's design), post-training-cutoff problems (models that aced pre-cutoff Codeforces solve ~none post-cutoff), and private held-back splits. Procurement rule this scenario teaches: any benchmark that existed on the public web before the model's training cutoff is a memorization-inclusive score; weight the fresh-task number.</>}
+        stretch={<>You cannot rewrite every eval quarterly. Which cheap statistic on the MODEL (not the benchmark) flags likely contamination, per the GSM1k methodology?</>}
+      />
+
+      {/* F1 — Freedman's paradox */}
+      <VIS.TrapProblem
+        id="tvt-p21"
+        difficulty="hard"
+        title="Fifty noise columns, one significant regression"
+        scenario={<>A colleague demonstrates "signal" in a dataset you know is pure noise: n=100 rows, 50 random regressors. They screen for predictors with p &lt; 0.25, refit on the ~15 survivors, and present R² ≈ 0.36 with an overall F-test p &lt; 0.0001 and several coefficients significant at 5%. Every arithmetic step checks out. What happened?</>}
+        options={[
+          {key:"a", text:"Screening kept the columns correlated with THIS sample's noise; the refit re-measured those same correlations on the same rows. The p-values priced fixed-in-advance hypotheses.", correct:true},
+          {key:"b", text:"With 50 regressors and 100 rows the design is over-parameterized, and R²=0.36 is below the value expected from dimensionality alone; nothing is anomalous."},
+          {key:"c", text:"The F-test is the wrong instrument after screening; a Bonferroni correction of 5%/50 on the surviving coefficients restores validity of the demonstration."},
+          {key:"d", text:"The bug is the p<0.25 screen being too loose; screening at p<0.05 would leave only genuinely predictive columns and the refit would be honest."},
+        ]}
+        trap={<>(d) misses that the screen's THRESHOLD is not the sin — the sin is screening and confirming on the SAME data. A stricter screen keeps fewer, luckier columns and the refit still flatters them. (c)'s <VIS.Term def="Dividing the significance level by the number of tests — the simplest correction for testing many hypotheses at once.">Bonferroni</VIS.Term> move corrects for 50 comparisons but not for the two-stage select-then-refit structure, which is what manufactured the certainty.</>}
+        lens={<>This is Freedman 1983, the primal scene of selection bias: one screening pass on pure noise, refit, and classical statistics happily certifies the result — because every classical p-value prices hypotheses chosen BEFORE seeing the data. It is the same mathematics as val-overfitting (screen = sweep, refit = report best), which is why the fixes rhyme across both worlds: fresh data for the second stage, or selection-aware inference. When someone shows you a two-stage analysis with one dataset, find where stage two re-uses stage one's luck.</>}
+        stretch={<>Split the 100 rows 50/50: screen on the first half, refit on the second. What happens to the R² and the p-values, and what did the split price in?</>}
+      />
+
+      {/* F4 — Thresholdout mechanism */}
+      <VIS.TrapProblem
+        id="tvt-p22"
+        difficulty="hard"
+        title="The holdout you can query 10,000 times — what makes it survive?"
+        scenario={<>Dwork et al.'s reusable-holdout demo: d=10,000 pure-noise features, an analyst adaptively selects features by checking a holdout after each try. The NAIVE holdout drifts past 60% "accuracy" on noise. <VIS.Term def="Dwork et al.'s reusable-holdout algorithm from the differential-privacy toolkit. Identifying its mechanism is exactly this problem.">Thresholdout</VIS.Term> — same analyst, same queries — stays honestly at ~50%. Which ingredient does the protecting?</>}
+        options={[
+          {key:"a", text:"Information rationing: answers default to TRAIN, the holdout speaks only past a disagreement threshold, and releases carry calibrated noise — each query leaks almost nothing.", correct:true},
+          {key:"b", text:"Thresholdout splits the holdout into 10,000 single-use shards and burns one per query, so no shard is ever read twice."},
+          {key:"c", text:"It detects adaptive intent by tracking query correlations and refuses to answer once the analyst's queries become dependent on previous answers."},
+          {key:"d", text:"The noise simply makes answers too blurry to act on, which stops overfitting by stopping ALL learning from the holdout — honest but useless."},
+        ]}
+        trap={<>(d) is the cynical decoy: the noise is CALIBRATED, not obstructive — genuine train/holdout disagreements (real generalization failures) still surface loudly, while the analyst's noise-chasing queries get answers dominated by train, which they already had. The mechanism discriminates between signal and luck; it does not blind the analyst.</>}
+        lens={<>The differential-privacy insight underneath: what poisons a holdout is not reading it but letting its RANDOM SPECIFICS steer decisions, so an interface that bounds per-query information leakage (answer-from-train default + threshold + noise) supports ~n² adaptive queries versus ~n for naive reuse — and exponentially many non-adaptive ones. The Kaggle public/private leaderboard and the Ladder's report-only-on-improvement rule are folk implementations of the same idea: ration what the oracle reveals, not who may ask.</>}
+        stretch={<>Why does answering from TRAIN by default leak nothing the analyst did not already have — and what event forces Thresholdout to spend budget?</>}
+      />
+
+      {/* F5 — The Ladder */}
+      <VIS.TrapProblem
+        id="tvt-p23"
+        difficulty="hard"
+        title="Design the leaderboard that the random-vector attack cannot climb"
+        scenario={<>After the noise-climbing incident (drill p10), you are redesigning the internal leaderboard. Blum &amp; Hardt's analysis says a naive board leaks Θ(√(t/n)) over t submissions. Among the proposed rules, which single change most directly breaks the adaptive climb?</>}
+        options={[
+          {key:"a", text:"Report a new score only when it beats the submitter's best by margin η, else repeat the old score — near-tied probes get zero feedback (the Ladder).", correct:true},
+          {key:"b", text:"Halve the allowed submissions per day: rate limits shrink t, which is the only term in √(t/n) a leaderboard designer controls."},
+          {key:"c", text:"Score submissions on a fresh bootstrap resample of the test set each day, so no two probes ever measure the same noise draws."},
+          {key:"d", text:"Round scores to 3 decimals: quantization destroys the sub-noise gradations that adaptive probing needs to detect keepers."},
+        ]}
+        trap={<>(b) and (d) are the defenses everyone ships (Kaggle does both) and they only THROTTLE the leak — the climb continues at a slower rate. (c) sounds fresh but resamples the SAME rows: the underlying noise draws are shared across bootstraps, and persistent probing still finds them. Only the margin rule changes what information EXISTS in the response.</>}
+        lens={<>The Ladder's insight is response-function design: the attack consumes fine-grained feedback on near-tied submissions, so a board that answers "no change" below margin η starves it — bounding leaderboard error at a rate like ((log t)/n)^(1/3) essentially independent of how adaptively you probe. Rate limits and rounding shrink the leak per query; the margin rule removes the leak's carrier. General security-of-estimates lesson: govern the INTERFACE (what the oracle returns), not just the request rate.</>}
+        stretch={<>The margin rule has a usability cost for honest participants. What is it, and how does η trade it against protection?</>}
+      />
+
+      {/* F3 — reverse-engineer: val climbing, prod flat */}
+      <VIS.TrapProblem
+        id="tvt-p24"
+        difficulty="hard"
+        title="Val accuracy climbed all quarter — production never moved"
+        scenario={<>A team's dashboard shows val accuracy improving steadily for three months (81.2% → 84.6%) across ~300 experiments: feature tweaks, architecture variants, threshold nudges — every accepted change justified by "val improved." Online metrics over the same period: flat. The val set has not changed since January. Which diagnosis fits ALL the evidence?</>}
+        options={[
+          {key:"a", text:"Three hundred accept/reject decisions against one frozen set: the team hill-climbed val's noise (≈√(2 ln 300)·σ of headroom) — gains that generalize to nothing.", correct:true},
+          {key:"b", text:"Training/serving skew: the offline gains are real but a feature-computation mismatch in serving erases them online — the val curve itself is trustworthy."},
+          {key:"c", text:"The online metric is less sensitive than accuracy; +3.4% offline is simply below the A/B test's detection threshold and will surface as tests accumulate power."},
+          {key:"d", text:"Distribution drift: January's val set no longer represents current traffic, so val gains measure fit to stale data — refreshing val restores agreement."},
+        ]}
+        trap={<>(b) and (d) are the comfortable diagnoses — real phenomena, each explaining offline/online gaps, and each CHECKABLE in ways the scenario quietly forecloses: skew would not produce a steady months-long CLIMB (it is a level offset), and drift would show val gains that once transferred and stopped (plus fresh-traffic scoring would diverge from val over time, not stay self-consistent). Only selection explains a smooth climb that never once cashed out online.</>}
+        lens={<>The diagnostic signature of selection rot is the CLIMB ITSELF: 300 adaptive accepts against a frozen set will manufacture ≈3σ of apparent progress from pure noise even if nothing improved — the arithmetic from drill p9 running as a slow-motion leaderboard attack, inside one team, with the best intentions. The confirmatory test costs one afternoon: re-score this quarter's "improvements" on fresh held-out data; selection rot predicts they evaporate. Then fix the process, not the models: refresh val on a schedule, and gate accepts on fresh-data confirmation, not the shared set every experiment already touched.</>}
+        stretch={<>Design the team's new experiment-acceptance protocol using only the concepts on this page: which set does each decision consume, and what gets refreshed when?</>}
+      />
+
+    </VIS.Section>
   </main>
 );
 ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
