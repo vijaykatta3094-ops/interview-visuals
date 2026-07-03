@@ -2059,8 +2059,8 @@ flowchart LR
         title="P12 — What does ε in the BN denominator do?"
         scenario={<><em>Discriminating insight:</em> the role of ε beyond "avoiding NaN". The denominator √(σ²<sub>B</sub> + ε) has ε = 1e−5 by default in PyTorch BN.</>}
         options={[
-          {key:"a", text:"ε is a numerical-stability term that prevents divide-by-zero when σ² ≈ 0 and also bounds the gradient w.r.t. variance from blowing up when variance is tiny.", correct:true},
-          {key:"b", text:"ε is the learning rate of the running statistics — increasing it makes the EMA adapt faster."},
+          {key:"a", text:"ε is a numerical-stability term preventing divide-by-zero when σ² ≈ 0, and it bounds the variance gradient from blowing up when variance is tiny.", correct:true},
+          {key:"b", text:"ε is really the learning rate of the running statistics — increasing its value simply makes the EMA adapt considerably faster."},
           {key:"c", text:"ε is an L2 regularization coefficient on the (γ, β) parameters, applied implicitly through the normalization."},
           {key:"d", text:"ε is a confidence-interval width used to clip outlier activations before computing the mean and variance."},
         ]}
@@ -2109,7 +2109,7 @@ flowchart LR
         options={[
           {key:"a", text:"No — BN's forward pass is per-sample once you reach an activation, so cross-batch leakage is impossible by construction."},
           {key:"b", text:"Yes, but only with batch size 2; once batches contain 32+ samples the contribution of any one sample is below numerical precision."},
-          {key:"c", text:"Yes — at training time BN computes μ_B and σ²_B over the whole batch, so one sample shifts the normalization applied to every other sample. Implicit cross-sample coupling is real.", correct:true},
+          {key:"c", text:"Yes — at train time BN computes μ_B and σ²_B over the whole batch, so one sample shifts the normalization of every other. Cross-sample coupling is real.", correct:true},
           {key:"d", text:"No — only LayerNorm has cross-sample interactions because it averages over feature dimensions; BN is purely per-sample once its batch stats are computed."},
         ]}
         trap={<>(a) misses the train-time coupling. (b) is wrong: contribution scales as 1/N but is never below FP32 precision for normal N. (d) gets the axes exactly backwards — LayerNorm is per-sample, BN is the one with cross-sample coupling.</>}
@@ -2155,7 +2155,7 @@ flowchart LR
         title="P18 — Default momentum in PyTorch BN"
         scenario={<><em>Discriminating insight:</em> what the momentum hyperparameter does and what its default value is. A reviewer asks: "Should I tune the BN momentum?"</>}
         options={[
-          {key:"a", text:"Default momentum is 0.1 in PyTorch (opposite convention from TF's 0.9 — both mean slow-moving averages). Rarely needs tuning, except very small datasets or long runs.", correct:true},
+          {key:"a", text:"Default momentum is 0.1 in PyTorch (opposite of TF's 0.9 — both mean slow-moving averages). Rarely needs tuning, except tiny datasets or long runs.", correct:true},
           {key:"b", text:"Default momentum is 0.9, identical to SGD momentum, and tuning it is essential for convergence on most architectures."},
           {key:"c", text:"PyTorch has no momentum parameter — running stats are computed as a simple unweighted average over all training batches."},
           {key:"d", text:"Momentum is the (γ, β) learning rate; default 0.1 matches the global LR multiplier for normalization layers."},
@@ -2172,7 +2172,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> that backprop flows through μ_B and σ²_B as well as through γ and β. A reviewer claims: "BN's gradients only flow through γ and β; the mean and variance are constants from the gradient's perspective."</>}
         options={[
           {key:"a", text:"Correct — μ_B and σ²_B are treated as constants by autograd because they're computed by reduction, which doesn't have a backward."},
-          {key:"b", text:"Wrong — μ_B and σ²_B are functions of the batch's activations, and backprop computes ∂loss/∂x_i through them. This is exactly what couples gradients across samples in the same batch.", correct:true},
+          {key:"b", text:"Wrong — μ_B and σ²_B are functions of the batch's activations, and backprop flows ∂loss/∂x_i through them. That is what couples gradients across the batch.", correct:true},
           {key:"c", text:"Wrong — but only in PyTorch versions before 1.0; modern frameworks detach the statistics from the graph for efficiency."},
           {key:"d", text:"Correct — autograd uses the running stats for the backward pass, not the batch stats, so cross-sample gradient coupling is impossible."},
         ]}
@@ -2189,8 +2189,8 @@ flowchart LR
         options={[
           {key:"a", text:"They're identical — InstanceNorm is just BN's forward computation when N=1, including running statistics."},
           {key:"b", text:"InstanceNorm is a regularization technique applied only during training; at eval it's bypassed entirely."},
-          {key:"c", text:"InstanceNorm averages over the channel axis like LayerNorm; BatchNorm averages over the spatial axis."},
-          {key:"d", text:"InstanceNorm uses per-(sample, channel) stats by definition (no batch axis) AND tracks no running stats, so it behaves identically at train and eval.", correct:true},
+          {key:"c", text:"InstanceNorm averages over the channel axis exactly like LayerNorm does; BatchNorm instead averages purely over the spatial axis."},
+          {key:"d", text:"InstanceNorm uses per-(sample, channel) stats (no batch axis) AND tracks no running stats, so it behaves identically at train and eval.", correct:true},
         ]}
         trap={<>(a) misses that InstanceNorm has no running buffers and no train/eval distinction. (b) fabricates an eval-time bypass. (c) gets the axes wrong (InstanceNorm averages over (H, W) per (sample, channel), like BN-at-N=1 but conceptually different).</>}
         lens={<>InstanceNorm: per (sample, channel), mean and variance over spatial dims, no running stats, no train/eval split. BN at N=1 would do the same forward computation IF you also set track_running_stats=False — but standard BN with N=1 still tries to update its EMA buffers and so behaves badly. InstanceNorm dominates in style transfer for exactly this reason.</>}
@@ -2204,7 +2204,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> that an adversary who controls part of a batch can manipulate BN's normalization for the rest. A red team observes that they can dramatically alter a target model's predictions on a victim image just by changing the OTHER images in the same eval batch. The model uses default BatchNorm2d.</>}
         options={[
           {key:"a", text:"Impossible — at eval the model uses frozen running stats; cross-batch attacks against BN cannot work in inference mode."},
-          {key:"b", text:"The serving code is leaving the model in train mode, so BN uses batch stats and the adversary's images shift (μ_B, σ²_B) for the victim. Fix: call model.eval().", correct:true},
+          {key:"b", text:"The serving code left the model in train mode, so BN uses batch stats and the adversary's images shift (μ_B, σ²_B) for the victim. Fix: model.eval().", correct:true},
           {key:"c", text:"BN is fundamentally vulnerable to this attack in both train and eval mode; the only defense is to remove all BN layers."},
           {key:"d", text:"This is a bug in PyTorch's BN implementation that was patched in 1.11; upgrading resolves it without code or model changes."},
         ]}
@@ -2237,7 +2237,7 @@ flowchart LR
         options={[
           {key:"a", text:"BN automatically maintains separate running stats per task when you tag forward passes with task IDs; no problem here."},
           {key:"b", text:"BN's (γ, β) are shared across tasks, so eval is fine as long as the affine fits; the stats themselves are unimportant."},
-          {key:"c", text:"BN's running stats get pulled toward whichever task ran most recently, so eval on a task seen earlier uses stats biased toward other tasks — accuracy oscillates with rotation.", correct:true},
+          {key:"c", text:"BN's running stats get pulled toward whichever task ran most recently, so eval on an earlier task uses biased stats — accuracy oscillates.", correct:true},
           {key:"d", text:"BN works because round-robin sampling produces an effectively i.i.d. batch when averaged over the rotation period."},
         ]}
         trap={<>(a) invents an API that doesn't exist by default. (b) underweights how much running stats matter at eval. (d) misunderstands EMA: it's NOT a simple average; the most recent batches dominate.</>}
