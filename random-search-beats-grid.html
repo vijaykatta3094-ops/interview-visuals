@@ -2336,9 +2336,9 @@ flowchart TD
         title="Q2 — Why does grid waste trials in high dimension?"
         scenario={<><em>Discriminating insight:</em> what mechanism makes grid coverage decay? You are sketching the intuition on a whiteboard.</>}
         options={[
-          {key:"a", text:"Grid trials are correlated, so the effective sample size is reduced by a multiplicative noise factor as d grows."},
+          {key:"a", text:"Grid trials are all correlated with each other, so the effective sample size is reduced by a multiplicative noise factor as the dimension d grows."},
           {key:"b", text:"Grid wastes wall-clock because each grid coordinate triggers a full training run with cold-start GPU initialization."},
-          {key:"c", text:"With k values per axis over d axes, k^d trials produce only k distinct values along any one axis — per-axis resolution is n^(1/d), which collapses fast.", correct:true},
+          {key:"c", text:"With k values per axis over d axes, k^d trials give only k distinct values per axis — per-axis resolution is n^(1/d), which collapses fast.", correct:true},
           {key:"d", text:"Grid's deterministic schedule cannot exploit early-stopping correlations across trials, unlike random which can."},
         ]}
         trap={<>(a) misnames "correlation" — grid trials are independent runs, the issue is coverage not correlation. (b) is unrelated infra. (d) is unrelated to coverage.</>}
@@ -2375,8 +2375,8 @@ flowchart TD
         title="Q5 — Why is random search a strong baseline for Bayesian optimization?"
         scenario={<><em>Discriminating insight:</em> what role do random trials play inside Bayesian HPO? A candidate proposes skipping the warm-up.</>}
         options={[
-          {key:"a", text:"Random trials cool the acquisition function by adding noise so the GP posterior does not overfit to a single mode."},
-          {key:"b", text:"Bayesian methods need an initial spread of trials to fit the surrogate; without them the acquisition function is dominated by prior assumptions and collapses to one region.", correct:true},
+          {key:"a", text:"Random trials cool the acquisition function by adding noise so that the GP posterior does not end up overfitting to any single mode."},
+          {key:"b", text:"Bayesian methods need an initial spread to fit the surrogate; without it the acquisition function is dominated by the prior and collapses to one region.", correct:true},
           {key:"c", text:"Random trials average out hyperprior misspecification because the marginal likelihood is unbiased under a uniform sampler."},
           {key:"d", text:"They satisfy the no-free-lunch theorem's requirement that black-box optimizers must sample uniformly at infinity."},
         ]}
@@ -2401,10 +2401,10 @@ flowchart TD
         title="Q7 — Why are random projections of the joint axes irrelevant here?"
         scenario={<><em>Discriminating insight:</em> a colleague claims random search 'projects to a lower-dim subspace' — what is wrong with this framing?</>}
         options={[
-          {key:"a", text:"Random search samples each axis from its prior independently; it does not project anything. The 'low effective dim' is a property of the OBJECTIVE, not the sampler.", correct:true},
+          {key:"a", text:"Random search samples each axis from its prior independently — it projects nothing. 'Low effective dim' is a property of the OBJECTIVE, not the sampler.", correct:true},
           {key:"b", text:"Random projections require a Johnson–Lindenstrauss lemma which only applies to high-dimensional Euclidean spaces, not bounded HPO priors."},
           {key:"c", text:"The sampler must use orthogonal directions to project; uniform sampling does not satisfy orthogonality so projection is impossible."},
-          {key:"d", text:"Projection would require a learned encoder; random search has no learned components by definition."},
+          {key:"d", text:"Projection would require some kind of learned encoder, and random search has no learned components at all by its very definition."},
         ]}
         trap={<>(b), (c), (d) overcomplicate. The point is that random search is unstructured marginal sampling; the win comes from the loss surface's structure.</>}
         lens={<>Important separation: the sampler is naive; the loss is structured. The advantage is asymmetric — random does not "know" which axes matter, but it does not need to.</>}
@@ -2414,9 +2414,9 @@ flowchart TD
         title="Q8 — How does the no-free-lunch theorem relate?"
         scenario={<><em>Discriminating insight:</em> does NFL forbid random search from being a 'best' HPO method? You are reading a theoretical critique.</>}
         options={[
-          {key:"a", text:"NFL says no optimizer beats any other averaged over ALL surfaces; random beats grid only under structural assumptions on real ML surfaces.", correct:true},
-          {key:"b", text:"NFL says random search is optimal among all bandit algorithms in the minimax sense."},
-          {key:"c", text:"NFL applies only to combinatorial search spaces and is irrelevant for continuous HPO."},
+          {key:"a", text:"NFL says no optimizer beats another averaged over ALL surfaces; random beats grid only under structural assumptions real ML surfaces have.", correct:true},
+          {key:"b", text:"NFL states that random search is provably optimal among all bandit algorithms, in the strict minimax sense over problems."},
+          {key:"c", text:"NFL applies only to purely combinatorial search spaces and is therefore completely irrelevant for continuous HPO."},
           {key:"d", text:"NFL forbids any HPO method from beating brute-force enumeration in the worst case, so random and grid are tied."},
         ]}
         trap={<>(b) misattributes optimality. (c) restricts NFL incorrectly. (d) is a near-true paraphrase but draws the wrong consequence.</>}
@@ -2441,9 +2441,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> what breaks if every trial trains from the same seed? A junior engineer ships a fix that "sets seed for reproducibility" at the start of every trial.</>}
         options={[
           {key:"a", text:"Validation accuracy becomes biased upward because seed-locked training disproportionately favors hyperparameters near the seed's bias."},
-          {key:"b", text:"Grad descent diverges because identical seeds cause batch order collisions across distributed workers."},
-          {key:"c", text:"Every trial trains the SAME model under the SAME data order with different hyperparameters, which is fine — but if init or batch sampling is seeded too, you measure HP sensitivity confounded with one specific init.", correct:true},
-          {key:"d", text:"Random search degenerates into grid search because identical seeds force the sampler to draw the same hyperparameters every trial."},
+          {key:"b", text:"Gradient descent will diverge, because identical seeds cause batch-order collisions across the distributed training workers."},
+          {key:"c", text:"Every trial trains under the SAME data order with different HPs — fine — but if init/batch sampling is also seeded, you confound HP sensitivity with one init.", correct:true},
+          {key:"d", text:"Random search degenerates into grid search, because identical seeds force the sampler to draw the exact same hyperparameters on every single trial."},
         ]}
         trap={<>(a) invents a bias mechanism. (b) is unrelated. (d) confuses the HP-sampler seed with the training seed — they are separate.</>}
         lens={<>Two seeds matter: the HP-sampler seed (vary across runs) and the per-trial training seed (vary across trials, set to trial index). Confounding them gives misleading HPO conclusions.</>}
@@ -2453,10 +2453,10 @@ flowchart TD
         title="Q11 — Parallelization: which method is more painful to parallelize?"
         scenario={<><em>Discriminating insight:</em> 64 workers, you can run them all at once. What is the parallel-friendliness ranking? You are choosing for a production HPO run.</>}
         options={[
-          {key:"a", text:"Grid: trivial (all coordinates known up front, fan out). Random: trivial (sample n configs, fan out). Bayesian: serial-ish (each trial waits for prior trials).", correct:true},
+          {key:"a", text:"Grid: trivial (coordinates known up front). Random: trivial (sample n configs, fan out). Bayesian: serial-ish (each trial waits for the prior ones).", correct:true},
           {key:"b", text:"Grid: serial (must traverse axes in order). Random: parallel. Bayesian: parallel (the surrogate updates lazily)."},
-          {key:"c", text:"All three are equivalent in parallel cost because each trial is an independent training run."},
-          {key:"d", text:"Random search requires a global lock on the sampler state, so it parallelizes worse than grid."},
+          {key:"c", text:"All three methods are exactly equivalent in parallel cost, because each individual trial is simply an independent training run."},
+          {key:"d", text:"Random search requires a global lock on its shared sampler state, so it actually parallelizes strictly worse than grid does."},
         ]}
         trap={<>(b) gets grid wrong — grid is trivially parallel. (c) ignores BO's sequential dependence on the surrogate. (d) invents a locking story; random sampling needs no shared state if seeds are split.</>}
         lens={<>Grid and random are embarrassingly parallel. Bayesian needs the posterior to update between trials, so parallel BO uses tricks (Thompson sampling, batch acquisition) and is strictly harder.</>}
@@ -2466,9 +2466,9 @@ flowchart TD
         title="Q12 — Quasi-random vs random: when does Sobol/Latin-hypercube help?"
         scenario={<><em>Discriminating insight:</em> a colleague replaces random sampling with Sobol sequences. What changes?</>}
         options={[
-          {key:"a", text:"Quasi-random sequences (Sobol, Halton, LHS) give lower discrepancy than i.i.d. random, so per-axis coverage is even more uniform for the same n; helps when d is moderate.", correct:true},
+          {key:"a", text:"Quasi-random sequences (Sobol, Halton, LHS) give lower discrepancy than i.i.d. random, so coverage is more uniform for the same n; helps at moderate d.", correct:true},
           {key:"b", text:"Sobol sequences are biased toward axis-aligned configurations, so they replicate grid's failure mode at moderate d."},
-          {key:"c", text:"Quasi-random sequences eliminate the need for warm-up in Bayesian optimization because they are deterministic."},
+          {key:"c", text:"Quasi-random sequences fully eliminate the need for any warm-up in Bayesian optimization, precisely because they are deterministic."},
           {key:"d", text:"Sobol is strictly worse than random in d > 2 because of the curse of dimensionality on low-discrepancy sequences."},
         ]}
         trap={<>(b), (c), (d) invent failure modes. The honest answer is: quasi-random is a mild upgrade in moderate d; it does not change the qualitative story.</>}
@@ -2479,10 +2479,10 @@ flowchart TD
         title="Q13 — Categorical hyperparameters: how does random search handle 'optimizer ∈ {SGD, Adam, RMSprop}'?"
         scenario={<><em>Discriminating insight:</em> what does the sampler do, and what does the objective surface look like? You are coding a config.</>}
         options={[
-          {key:"a", text:"Random search picks one categorical per trial uniformly; the objective is treated as 3 separate sub-surfaces glued together, one per category.", correct:true},
+          {key:"a", text:"Random search picks one categorical per trial uniformly; the objective is 3 separate sub-surfaces glued together, one per category.", correct:true},
           {key:"b", text:"Random search interpolates between categorical values using a soft embedding, then rounds to the nearest category at evaluation time."},
           {key:"c", text:"Categoricals are converted to one-hot continuous axes and sampled uniformly on the simplex."},
-          {key:"d", text:"Random search cannot handle categoricals; you must enumerate them as a discrete outer loop."},
+          {key:"d", text:"Random search simply cannot handle categoricals at all; you are forced to enumerate them as a separate discrete outer loop."},
         ]}
         trap={<>(b) invents interpolation. (c) overcomplicates one-hots. (d) is false — categoricals are first-class for random search.</>}
         lens={<>Sample categoricals from a multinomial prior. The cost is that "effective n per category" drops by the number of categories, so allocate accordingly.</>}
@@ -2492,10 +2492,10 @@ flowchart TD
         title="Q14 — Conditional hyperparameters: 'momentum' only exists when optimizer == SGD."
         scenario={<><em>Discriminating insight:</em> how should random search handle conditional axes? You are designing a config.</>}
         options={[
-          {key:"a", text:"Sample optimizer first; if SGD, sample momentum from its prior; if Adam, skip momentum and sample beta1/beta2 instead. Inactive axes contribute zero trials.", correct:true},
+          {key:"a", text:"Sample optimizer first; if SGD sample momentum, if Adam skip it and sample beta1/beta2 instead. Inactive axes contribute zero trials.", correct:true},
           {key:"b", text:"Sample all axes unconditionally; pass momentum to Adam where it is silently ignored to keep the joint product space rectangular."},
-          {key:"c", text:"Conditional axes break random search because the joint prior is no longer a product of independent marginals."},
-          {key:"d", text:"Use a meta-config that enumerates all (optimizer, hp-subset) tuples and grid-search over them."},
+          {key:"c", text:"Conditional axes fundamentally break random search, because the joint prior is no longer a clean product of independent marginals."},
+          {key:"d", text:"Use a meta-config that enumerates all of the (optimizer, hp-subset) tuples and then runs a grid search over all of them."},
         ]}
         trap={<>(b) wastes trials and pollutes the budget accounting. (c) overstates — conditional priors are fine. (d) regresses to grid.</>}
         lens={<>Conditional priors compose. Frameworks like Optuna, Ray Tune, and Hyperopt express them natively. The cost: conditioned axes get fewer effective samples.</>}
@@ -2505,10 +2505,10 @@ flowchart TD
         title="Q15 — Interaction effects: when does random fail to find them?"
         scenario={<><em>Discriminating insight:</em> can random search find an interaction between two hyperparameters that only matters jointly? You are debugging a hard HPO landscape.</>}
         options={[
-          {key:"a", text:"Random search finds interactions just fine as long as both axes are sampled in the good region within ONE trial; the probability is f1*f2, requiring n >= 1/(f1*f2) trials in expectation.", correct:true},
-          {key:"b", text:"Random cannot find interactions because it samples each axis independently; only joint search like grid can resolve them."},
+          {key:"a", text:"Random finds interactions fine if both axes land in the good region within ONE trial; the probability is f1*f2, needing n >= 1/(f1*f2) trials.", correct:true},
+          {key:"b", text:"Random search cannot find interactions at all because it samples each axis independently; only a joint search like grid can ever resolve them."},
           {key:"c", text:"Interactions require Bayesian optimization with a structured kernel; random search converges to the marginal optimum but misses interaction valleys."},
-          {key:"d", text:"Random search converges to interactions only asymptotically as n → ∞ at rate O(1/d!)."},
+          {key:"d", text:"Random search converges to the interactions only asymptotically as n → ∞, and does so at the very slow rate of O(1/d!)."},
         ]}
         trap={<>(b) confuses independent SAMPLING with independent EVALUATION — the trial evaluates the joint configuration. (c), (d) invent convergence rates.</>}
         lens={<>Random does find interactions; the budget cost is the product of per-axis good-region fractions. If f1=f2=0.1, you need ~100 random trials to expect one hit.</>}
@@ -2518,9 +2518,9 @@ flowchart TD
         title="Q16 — Early stopping: how does it interact with random search?"
         scenario={<><em>Discriminating insight:</em> you can early-stop bad trials at 10% of full budget. How does this change the random-vs-grid story?</>}
         options={[
-          {key:"a", text:"Early stopping helps random more than grid because random places more trials in obviously-bad regions; killing them early lets random ALLOCATE the saved budget to more samples.", correct:true},
+          {key:"a", text:"Early stopping helps random more: random places more trials in obviously-bad regions, and killing them early frees budget for more samples.", correct:true},
           {key:"b", text:"Early stopping helps grid more than random because grid's predictable schedule is easier to early-stop deterministically."},
-          {key:"c", text:"Early stopping is incompatible with random search because the validation loss curves of random configs are non-monotone."},
+          {key:"c", text:"Early stopping is basically incompatible with random search, because the validation-loss curves of random configs are all non-monotone."},
           {key:"d", text:"Early stopping is irrelevant — both methods see the same expected stopping rate per trial."},
         ]}
         trap={<>(b) gets the direction backward. (c) and (d) invent constraints.</>}
@@ -2531,10 +2531,10 @@ flowchart TD
         title="Q17 — Search-space design: which is the bigger lever, axes or priors?"
         scenario={<><em>Discriminating insight:</em> you can either add 2 more axes or fix the prior on LR from linear to log-uniform. Which wins? You are tuning a CV pipeline.</>}
         options={[
-          {key:"a", text:"Adding more axes always wins because random search scales gracefully with dimension."},
-          {key:"b", text:"Fixing the prior wins in the common case: a bad prior on an important axis wastes most of the budget; an extra unimportant axis costs only a constant factor.", correct:true},
-          {key:"c", text:"They are equivalent — both change the effective dimension by 1."},
-          {key:"d", text:"Adding axes is always cheaper because random search has zero marginal cost per axis."},
+          {key:"a", text:"Adding more search axes always wins here, because random search scales so gracefully with the total dimension of the space."},
+          {key:"b", text:"Fixing the prior usually wins: a bad prior on an important axis wastes most of the budget; an extra unimportant axis costs a constant factor.", correct:true},
+          {key:"c", text:"They are exactly equivalent — both of them change the effective dimension of the search by precisely 1."},
+          {key:"d", text:"Adding more axes is always the cheaper option, because random search genuinely has zero marginal sampling cost per extra axis."},
         ]}
         trap={<>(a), (d) misattribute the cost. (c) invents an equivalence.</>}
         lens={<>Prior quality on important axes dominates. A linear-uniform LR over [1e-5, 1e-1] wastes ~99% of trials in the top decade regardless of n.</>}
@@ -2545,9 +2545,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> what context must accompany a single random-search HPO result? You are reviewing a colleague's writeup.</>}
         options={[
           {key:"a", text:"The training data seed and the GPU model — accuracy is hardware-dependent on modern TF32 paths."},
-          {key:"b", text:"The number of trials n AND the random-search SEED (or multiple seeds), because a single random run is one sample from a distribution over HPO outcomes.", correct:true},
-          {key:"c", text:"Only the trial count matters; the seed is irrelevant because random search has no learned state."},
-          {key:"d", text:"The dropout rate selected by the run, because it dominates final test accuracy."},
+          {key:"b", text:"The trial count n AND the random-search SEED (or several seeds), because a single random run is one sample from the HPO-outcome distribution.", correct:true},
+          {key:"c", text:"Only the total trial count really matters here; the seed is completely irrelevant because random search carries no learned state."},
+          {key:"d", text:"The specific dropout rate that the run happened to select, because that single value dominates the final test accuracy."},
         ]}
         trap={<>(a), (d) are unrelated context. (c) ignores that "best of n random trials" is itself a noisy random variable.</>}
         lens={<>Always report n + sampler seed + at minimum a small bootstrap over HPO runs. Otherwise you are reporting one draw from the HPO outcome distribution.</>}
@@ -2570,10 +2570,10 @@ flowchart TD
         title="Q20 — A reviewer claims random search is 'just luck' — what is the empirical defense?"
         scenario={<><em>Discriminating insight:</em> how do you defend random search as scientific, not lucky? You are writing the methodology section.</>}
         options={[
-          {key:"a", text:"You can repeat the entire random search across multiple sampler seeds and report mean ± std of the best-of-n outcome; this measures HPO variance directly.", correct:true},
+          {key:"a", text:"Repeat the whole random search across several sampler seeds and report mean ± std of the best-of-n outcome — this measures HPO variance directly.", correct:true},
           {key:"b", text:"You can prove asymptotic optimality of random search under the no-free-lunch theorem."},
-          {key:"c", text:"Random search is deterministic once you fix the seed, so reviewer concerns about luck are misplaced by definition."},
-          {key:"d", text:"You can cite the Bergstra-Bengio paper, which proves random search is optimal in d ≥ 4."},
+          {key:"c", text:"Random search becomes fully deterministic once you fix the seed, so the reviewer's concerns about luck are misplaced by definition here."},
+          {key:"d", text:"You can simply cite the Bergstra-Bengio paper, which formally proves that random search is optimal whenever d ≥ 4."},
         ]}
         trap={<>(b), (d) misattribute proofs. (c) confuses reproducibility with the existence of randomness in the outcome distribution.</>}
         lens={<>The right answer is empirical: replicate the HPO process and report its outcome variance. Reproducibility ≠ low variance over seeds.</>}
@@ -2583,9 +2583,9 @@ flowchart TD
         title="Q21 — Mixing random with manual: what is the right hybrid?"
         scenario={<><em>Discriminating insight:</em> your best researcher hand-picks 5 configs they trust. How do you compose this with random search?</>}
         options={[
-          {key:"a", text:"Discard the manual configs; they bias the search and violate the random-search assumptions."},
-          {key:"b", text:"Replace random search with grid search around each manual config to refine locally."},
-          {key:"c", text:"Seed random search with the manual configs as initial trials, then continue sampling randomly; you get the best of both — expert knowledge as a warm start, exploration as backup.", correct:true},
+          {key:"a", text:"Discard the manual configs entirely; they bias the search and violate the core random-search assumptions about the sampler."},
+          {key:"b", text:"Replace random search entirely with a grid search placed around each manual config in order to refine each one locally."},
+          {key:"c", text:"Seed random search with the manual configs as initial trials, then sample randomly — expert knowledge as a warm start, exploration as backup.", correct:true},
           {key:"d", text:"Average the validation accuracy of the 5 manual configs and use it as a baseline; only keep random configs that beat it."},
         ]}
         trap={<>(a) wastes expert knowledge. (b) regresses to grid. (d) is a bad acceptance rule and ignores noise.</>}
@@ -2596,9 +2596,9 @@ flowchart TD
         title="Q22 — 'Random search' vs 'random restart of gradient descent' — what is the difference?"
         scenario={<><em>Discriminating insight:</em> a paper says 'random restarts beat grid'. Is this the same claim? You are reading carefully.</>}
         options={[
-          {key:"a", text:"Same thing — both refer to repeated training from a random starting point in hyperparameter space."},
-          {key:"b", text:"Random search varies HYPERPARAMETERS across trials; random restart varies WEIGHT INITIALIZATIONS within a fixed hyperparameter configuration. Different axes entirely.", correct:true},
-          {key:"c", text:"Random restart is a sub-case of random search where the hyperparameter is the random seed."},
+          {key:"a", text:"They are the same thing — both refer to repeated training runs from a random starting point in the hyperparameter space."},
+          {key:"b", text:"Random search varies HYPERPARAMETERS across trials; random restart varies WEIGHT INITS within one fixed config. Entirely different axes.", correct:true},
+          {key:"c", text:"Random restart is really just a sub-case of random search, one where the only hyperparameter being varied is the random seed."},
           {key:"d", text:"They are complementary: random search picks hyperparameters, random restart picks the optimizer used for each."},
         ]}
         trap={<>(a) confuses the two. (c) misrepresents — seed is not the hyperparameter of interest. (d) invents a relationship.</>}
@@ -2610,9 +2610,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> you have 200 trial results. What plot do you make first? You are preparing a results section.</>}
         options={[
           {key:"a", text:"A heatmap of validation loss over (LR, dropout) at evenly-spaced grid points, with random results interpolated to the grid."},
-          {key:"b", text:"A parallel-coordinates plot of all axes colored by validation loss — reveals which axes have steep gradients and where the good region lives in the joint space.", correct:true},
-          {key:"c", text:"A bar chart of the top 10 trials' validation loss ordered by trial index."},
-          {key:"d", text:"A line plot of validation loss vs trial number to show 'convergence' of the HPO."},
+          {key:"b", text:"A parallel-coordinates plot of all axes colored by validation loss — shows which axes have steep gradients and where the good region lives.", correct:true},
+          {key:"c", text:"A simple bar chart showing the top 10 trials' validation loss, ordered along the x-axis by their trial index."},
+          {key:"d", text:"A line plot of the validation loss versus the trial number, used to show the apparent 'convergence' of the HPO run."},
         ]}
         trap={<>(a) discards the random structure by snapping to a grid. (c) ignores axes. (d) is meaningless — random search has no notion of convergence in trial order.</>}
         lens={<>Parallel coordinates is the canonical HPO viz — supported by Optuna, W&B, Hyperopt. Reveals importance ranking by axis slope.</>}
@@ -2622,10 +2622,10 @@ flowchart TD
         title="Q24 — In which modern HPO method is 'random search' still the engine?"
         scenario={<><em>Discriminating insight:</em> which of these methods are essentially random search under the hood, just with a smarter outer wrapper?</>}
         options={[
-          {key:"a", text:"Hyperband and ASHA: random-sample a population, train at low fidelity, promote survivors. The sampler is uniform random; the wrapper is the fidelity scheduler.", correct:true},
+          {key:"a", text:"Hyperband and ASHA: random-sample a population, train at low fidelity, promote survivors. Uniform-random sampler; the wrapper is the fidelity scheduler.", correct:true},
           {key:"b", text:"Bayesian optimization with GP surrogate: the acquisition function IS random sampling weighted by posterior variance."},
-          {key:"c", text:"Genetic algorithms: the crossover step is random search over parent pairs."},
-          {key:"d", text:"Gradient-based HPO: the meta-gradient is a Monte-Carlo random search over the inner-loop trajectory."},
+          {key:"c", text:"Genetic algorithms: their crossover step is essentially just a random search performed over the possible parent pairs."},
+          {key:"d", text:"Gradient-based HPO: the meta-gradient here is really a Monte-Carlo random search taken over the inner-loop training trajectory."},
         ]}
         trap={<>(b), (c), (d) misattribute the random component to the wrong layer of the method.</>}
         lens={<>Hyperband / ASHA literally call random sampling for new configs; the value-add is the fidelity scheduler, not a smarter sampler. This is why random search is the right baseline for almost every HPO paper.</>}
@@ -2636,9 +2636,9 @@ flowchart TD
         scenario={<><em>Discriminating insight:</em> in interview-style one-sentence framing, what is the trigger for picking random over alternatives? You are summarizing for a teammate.</>}
         options={[
           {key:"a", text:"When the budget is so large that grid is computationally infeasible and Bayesian optimization is overkill."},
-          {key:"b", text:"When d ≥ 4, you lack a strong prior over which axes matter, and you need a parallel, reproducible baseline that other HPO methods must beat.", correct:true},
-          {key:"c", text:"When the validation surface is known to be unimodal and Lipschitz."},
-          {key:"d", text:"When you are constrained to a single GPU and cannot run trials in parallel."},
+          {key:"b", text:"When d ≥ 4, you lack a strong prior over which axes matter, and you need a parallel, reproducible baseline other methods must beat.", correct:true},
+          {key:"c", text:"When the validation surface is already known ahead of time to be both unimodal and smoothly Lipschitz."},
+          {key:"d", text:"When you are hard-constrained to a single GPU and therefore cannot run any of the trials in parallel."},
         ]}
         trap={<>(a) is partial — budget alone is not the trigger. (c) is unrelated. (d) inverts the parallelism advantage.</>}
         lens={<>The trigger is the conjunction: enough dimensions to break grid, no strong prior to drive BO, and the need for an honest baseline. Almost every real DL HPO satisfies this.</>}
