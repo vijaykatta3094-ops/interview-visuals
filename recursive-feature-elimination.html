@@ -2324,7 +2324,7 @@ flowchart TB
         options={[
           { key: "a", text: "Logistic regression — its coefficients flip sign across classes, so RFE cannot define a unique importance value." },
           { key: "b", text: "Random forest — bagging introduces randomness in feature_importances_, so RFE cannot trust the ranking across iterations." },
-          { key: "c", text: "Multi-layer perceptron — there is no <code>coef_</code> or <code>feature_importances_</code> attribute on a vanilla MLP, so RFE has no importance signal.", correct: true },
+          { key: "c", text: "Multi-layer perceptron — a vanilla MLP exposes no <code>coef_</code> or <code>feature_importances_</code>, so RFE has no importance signal.", correct: true },
           { key: "d", text: "Linear SVM — the loss is hinge rather than log-loss, which RFE's drop rule does not support." },
         ]}
         trap={<>(a) treats sign as a problem when RFE uses absolute value. (b) describes a real issue (instability) but RFE will still happily run. (d) invents a constraint not in the API.</>}
@@ -2375,7 +2375,7 @@ flowchart TB
           { key: "a", text: "100 retrains, each dropping 20 features — slower than step=1 because each iteration costs more bookkeeping." },
           { key: "b", text: "Identical compute to step=1; the step argument only affects the order in which dropped features are reported." },
           { key: "c", text: "2000 retrains; step controls only the inner solver tolerance, not the elimination loop." },
-          { key: "d", text: "20 retrains instead of 2000 — about 100× faster, but the final 100 features are dropped together so RFE cannot rank within that last batch.", correct: true },
+          { key: "d", text: "20 retrains, not 2000 — ~100× faster, but the last 100 features drop together so RFE cannot rank within that batch.", correct: true },
         ]}
         trap={<>(a) reverses the meaning of step. (b) and (c) misread the API entirely.</>}
         lens={<>step=100 means "drop 100 features each iteration". Number of iterations ≈ (d − k)/step. Bigger step → fewer retrains but RFE cannot distinguish features dropped together; near the final k you may want step=1 for fine ranking.</>}
@@ -2406,7 +2406,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> The CV-score peak can be a noisy estimate; if it sits near d, RFE is barely helping. RFECV gives a curve: mean CV AUC is 0.81 at k=200, peaks at 0.812 at k=180, and is 0.808 at k=50.</>}
         options={[
           { key: "a", text: "Ship k=180 because RFECV identified it as the peak; that's the whole point of running RFECV." },
-          { key: "b", text: "The 0.002 AUC gain at k=180 vs k=200 is likely inside fold-noise; consider k=50 for serving cost unless 0.002 is material to the business.", correct: true },
+          { key: "b", text: "The 0.002 AUC gain (k=180 vs 200) is likely fold-noise; pick k=50 for serving cost unless 0.002 is business-material.", correct: true },
           { key: "c", text: "Re-run with smaller cv (e.g. 3-fold) to see if the peak sharpens; 5-fold under-fits the peak detection." },
           { key: "d", text: "Switch to mutual information — RFECV is unreliable when the peak gain is below 1% AUC." },
         ]}
@@ -2438,7 +2438,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> Run-to-run variation reveals whether the selected set captures real structure. You bootstrap the training set 50 times, run RFE-30 on each. Two features appear in all 50 runs; eight appear in 1–5 runs.</>}
         options={[
           { key: "a", text: "All 30 features RFE picked should be kept regardless of bootstrap frequency; RFE selected them so they earn their slot." },
-          { key: "b", text: "The 50/50 features are robust signal; the 1-5/50 features are likely noise or collinear stand-ins. Report the stable core and consider stability selection as the headline.", correct: true },
+          { key: "b", text: "The 50/50 features are robust; the 1-5/50 are likely noise or collinear stand-ins. Report the stable core and use stability selection.", correct: true },
           { key: "c", text: "Low bootstrap frequency for 8 features means RFE's hyperparameters are wrong; refit with step=10 to stabilize." },
           { key: "d", text: "Bootstrap frequency is not informative for RFE because each run sees a different sample size; only the full-data run counts." },
         ]}
@@ -2503,7 +2503,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> With few samples and many features, the importance signal is itself noisy and the recursion compounds it. You have n=200 rows, d=500 features (a wide problem), and 10-fold CV folds of 20 rows each.</>}
         options={[
           { key: "a", text: "RFE works fine on wide data; sklearn handles n &lt; d internally and the resulting selection is unbiased." },
-          { key: "b", text: "In the n &lt;&lt; d regime, RFE rankings are dominated by sampling noise — every elimination is a coin flip, and the final set is essentially random.", correct: true },
+          { key: "b", text: "In the n &lt;&lt; d regime, RFE rankings are dominated by sampling noise — each elimination is a coin flip, the final set basically random.", correct: true },
           { key: "c", text: "Use RFECV with cv=200 (leave-one-out) to maximize signal; the small per-fold sample is not an issue with LOO." },
           { key: "d", text: "Switch to RFE with step=100 — coarser stepping protects against noisy importance and recovers the true signal." },
         ]}
@@ -2551,7 +2551,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> Imputation parameters fit on training data should stay isolated from validation data. You build <code>Pipeline([('impute', SimpleImputer()), ('rfe', RFE(estimator)), ('clf', estimator)])</code> and pass it to <code>cross_val_score</code>.</>}
         options={[
           { key: "a", text: "Incorrect — RFE must come before imputation so it doesn't see imputed values as if they were real." },
-          { key: "b", text: "Correct setup — sklearn's Pipeline ensures imputation and RFE both fit only on each fold's training portion, so held-out folds are genuinely held out.", correct: true },
+          { key: "b", text: "Correct — sklearn's Pipeline fits imputation and RFE only on each fold's train portion, so held-out folds stay held out.", correct: true },
           { key: "c", text: "Incorrect — RFE inside Pipeline introduces leakage because it reuses the imputed values from the test fold during selection." },
           { key: "d", text: "Doesn't matter — Pipeline is just a convenience wrapper; the underlying behaviour is identical to manual feature selection." },
         ]}
@@ -2582,7 +2582,7 @@ flowchart TB
         title="Q25 — One situation where you would reach for an alternative to RFE"
         scenario={<><em>Discriminating insight:</em> RFE is principled but slow and unstable; cleaner alternatives win in many regimes. A senior asks for one situation where you would explicitly pick a different selector.</>}
         options={[
-          { key: "a", text: "When the downstream model is a linear regression and you care about sparsity — Lasso solves the same problem in one fit (path) rather than d retrains.", correct: true },
+          { key: "a", text: "When the model is linear regression and you want sparsity — Lasso solves it in one path fit rather than d retrains.", correct: true },
           { key: "b", text: "When the dataset has more than 1000 rows — RFE is designed only for small-data feature selection." },
           { key: "c", text: "When features have different scales — RFE cannot run on heterogeneous-scale data even after standardization." },
           { key: "d", text: "When the target is balanced — RFE assumes class imbalance and behaves poorly on balanced labels." },
