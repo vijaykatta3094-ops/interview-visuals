@@ -2301,7 +2301,7 @@ flowchart TB
         options={[
           {key:"a", text:"High MI implies causation in the limit of infinite samples because spurious correlations vanish asymptotically."},
           {key:"b", text:"High MI implies non-causation, since correlation is necessary but not sufficient for causation and MI is just a stronger form of correlation."},
-          {key:"c", text:"MI is a purely associational measure; it tells you the feature and target are statistically dependent but cannot distinguish cause, effect, common cause, or selection bias.", correct:true},
+          {key:"c", text:"MI is purely associational: it shows the feature and target are dependent but can't distinguish cause, effect, common cause, or selection bias.", correct:true},
           {key:"d", text:"MI measures the direction of dependence X to Y via the asymmetry I(X;Y) vs I(Y;X), so causal direction is implied."},
         ]}
         trap={<>(a) is wrong about spurious correlation vanishing. (b) inverts the statement. (d) is wrong because MI is symmetric — there is no asymmetry to read direction from.</>}
@@ -2348,7 +2348,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> you compute MI on the full dataset to select features, then run cross-validation on the selected subset. What is wrong with this?</>}
         options={[
           {key:"a", text:"Nothing — MI is a filter method so it cannot leak information across folds the way wrapper methods do."},
-          {key:"b", text:"Computing MI on the full dataset (including the held-out folds) uses the target values from the validation set, leaking validation information into selection.", correct:true},
+          {key:"b", text:"Computing MI on the full dataset (including held-out folds) uses the val-set targets, leaking validation information into selection.", correct:true},
           {key:"c", text:"MI cannot be combined with CV at all because the estimator's bias depends on the sample size, which changes per fold."},
           {key:"d", text:"The risk is small enough to ignore as long as the dataset has more than 10,000 rows; below that, refit the MI scores per fold."},
         ]}
@@ -2380,7 +2380,7 @@ flowchart TB
         scenario={<><em>Discriminating insight:</em> what differs between mutual_info_classif and mutual_info_regression at the algorithm level? You are picking the right one for a continuous target.</>}
         options={[
           {key:"a", text:"They are aliases — mutual_info_regression simply re-exports mutual_info_classif with the discrete_features default flipped."},
-          {key:"b", text:"They use different estimators: classif handles a discrete target with a per-class entropy formula, regression uses a fully k-NN-based estimator treating Y as continuous.", correct:true},
+          {key:"b", text:"Different estimators: classif uses a per-class entropy formula for discrete Y; regression uses a k-NN estimator treating Y as continuous.", correct:true},
           {key:"c", text:"Classif rounds Y to integers before computing MI; regression keeps the float values but applies a Box-Cox transform first."},
           {key:"d", text:"Regression uses the squared-correlation R² as a proxy for MI under a Gaussian assumption; the API is for convenience, not statistical rigor."},
         ]}
@@ -2445,7 +2445,7 @@ flowchart TB
         options={[
           {key:"a", text:"MI is dominated by the majority class and gives nearly zero scores for every feature; you must oversample first to get useful rankings."},
           {key:"b", text:"MI is invalid under class imbalance because the entropy estimator divides by p(y) which approaches zero for the minority class."},
-          {key:"c", text:"MI handles imbalance gracefully because it measures dependence over the full joint, rather than classification accuracy; rare-class signal is weighted by its joint probability.", correct:true},
+          {key:"c", text:"MI handles imbalance gracefully: it measures dependence over the full joint, not accuracy; rare-class signal is weighted by its joint probability.", correct:true},
           {key:"d", text:"MI exactly equals AUC under imbalance because both are rank-based statistics that ignore class proportions."},
         ]}
         trap={<>(a) confuses MI with accuracy. (b) is fabricated — the estimator handles small p(y) fine. (d) is wrong; MI and AUC are different statistics.</>}
@@ -2491,7 +2491,7 @@ flowchart TB
         title="Q25 — When does MI fail as a feature ranker?"
         scenario={<><em>Discriminating insight:</em> in what realistic regime is MI the WRONG tool, even though it sounds attractive? You are advising a team on whether to add MI to their selection pipeline.</>}
         options={[
-          {key:"a", text:"Tiny samples (under a few hundred rows) with continuous features: k-NN MI estimates are noisy enough that the rank order is unstable and the chosen subset varies wildly run-to-run.", correct:true},
+          {key:"a", text:"Tiny samples (a few hundred rows) with continuous features: k-NN MI estimates are noisy, so the rank order is unstable and the subset varies run-to-run.", correct:true},
           {key:"b", text:"Any classification problem with more than 10 classes; MI's discrete-target formula scales as O(C²) and becomes computationally infeasible."},
           {key:"c", text:"Datasets where features are standardized to mean zero and unit variance; the k-NN distances become degenerate after standardization."},
           {key:"d", text:"Any problem where the model is a tree-based ensemble, because tree models do their own implicit MI ranking internally during training."},
