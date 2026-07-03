@@ -1946,7 +1946,7 @@
 // Model complexity curve — row 3 — fingerprint: model-complexity-curve
 // Concept: as model capacity grows, bias falls and variance rises.
 // Sweet spot lives at the minimum of the test-error U-curve.
-// Pattern: smart-newcomer-depth (thought experiment → name+def → math → practical) + 25 trap drills.
+// Pattern: smart-newcomer-depth (thought experiment → name+def → math → practical) + 23 trap drills.
 
 // --- Vega-Lite: 30 polynomial fits per degree, overlaid (Beat 1) ---
 function makeDegreeFits(degree, n_runs = 30) {
@@ -2186,7 +2186,7 @@ flowchart TB
       </VIS.Callout>
     </VIS.Section>
 
-    <VIS.Section id="sec-drill" title="Test yourself — concept drill (25 problems)">
+    <VIS.Section id="sec-drill" title="Test yourself — concept drill (23 problems)">
       <p style={{ color: "#475569", marginBottom: 16 }}>
         Twenty-five interview-grade trap problems testing the model-complexity curve across <strong>identity</strong>, <strong>application</strong>, <strong>mechanism</strong>, <strong>operations</strong>, and <strong>failure modes</strong>. Each scenario carries more context than strictly needed; some details are signal, some are red herrings. Pick the answer, then reveal the trap and the mechanism.
       </p>
@@ -2301,7 +2301,7 @@ flowchart TB
         id="mcc-q8"
         difficulty="medium"
         title="Q8 — Which knob sits outside the classical bias-variance axis?"
-        scenario={<><em>Discriminating insight:</em> Some knobs change effective capacity directly; others affect optimization or data scale without crossing the bias-variance boundary. Of the 4 knobs listed, three slide you along the U-curve and one sits outside the classical framework. Pick the one outside.</>}
+        scenario={<><em>Discriminating insight:</em> Some knobs change effective capacity directly; others affect optimization or data scale without crossing the bias-variance boundary. Some of these knobs slide you along the U-curve; at least one does not. Pick the knob that sits outside the classical framework.</>}
         options={[
           { key: "a", text: "Random initialization seed for a fixed-architecture 5-layer neural network — changes which minimum the optimizer reaches.", correct: true },
           { key: "b", text: "Polynomial degree d (sweep d from 1 to 10) in OLS polynomial regression — directly grows the function class size." },
@@ -2372,22 +2372,7 @@ flowchart TB
         lens={<>When both train AND test plateau together as you add data, σ² is the active constraint. Fix is BETTER LABELS (denoise, relabel, use stronger signal like dwell-time vs binary clicks), not more data or capacity.</>}
       />
 
-      <VIS.TrapProblem
-        id="mcc-q13"
-        difficulty="hard"
-        title="Q13 — 100 to 1000 trees, variance barely moves — why?"
-        scenario={<><em>Discriminating insight:</em> Ensemble variance has an asymptote tied to inter-tree correlation rather than to tree count alone. Random forest with 100 trees on a 200k-row regression task has prediction variance 0.12 measured across bootstrap draws. You scale to 1000 trees, identical config. Variance is now 0.108 — only a 10% drop.</>}
-        options={[
-          { key: "a", text: "Trees are highly correlated (ρ ≈ 0.9) because they share most bootstrap samples; ensemble variance asymptotes at σ²·ρ.", correct: true },
-          { key: "b", text: "Bug — n trees should always cut variance proportionally as σ²/n; expect 10× trees → 10× variance reduction." },
-          { key: "c", text: "Bias dominates — adding trees can fix variance but cannot reduce bias, so the extra compute budget is wasted." },
-          { key: "d", text: "mtry is too low — trees are over-decorrelated, so each tree is too weak to meaningfully contribute to the average." },
-        ]}
-        trap={<>(b) is the textbook σ²/n reading — true only for uncorrelated learners. (c) blames bias when the issue is variance asymptote, not bias dominance. (d) inverts the math — high correlation means mtry should go DOWN further to decorrelate, not up.</>}
-        lens={<>For correlated ensembles: Var(avg) = σ²·(1-ρ)/n + σ²·ρ. As n→∞, variance → σ²·ρ. With ρ≈0.9, the floor is 0.9·σ², not zero. Fix: decorrelate (lower mtry, deeper subsampling, switch to extra-trees) — adding more trees alone cannot break the asymptote.</>}
-      />
-
-      <VIS.TrapProblem
+<VIS.TrapProblem
         id="mcc-q14"
         difficulty="medium"
         title="Q14 — At which polynomial degree does variance start dominating?"
@@ -2399,25 +2384,10 @@ flowchart TB
           { key: "d", text: "Variance dominates total error past the U-curve minimum (degree 5+) where its growth outpaces bias² reduction.", correct: true },
         ]}
         trap={<>(a) confuses "positive" with "dominant" — variance is always positive past degree 1 but starts very small. (b) imports the modern over-parameterized framing; this is a classical-regime question. (c) is an operational heuristic, not a property of the decomposition.</>}
-        lens={<>"Dominates" means contributes most to total error. That happens past the U-curve minimum where variance grows faster than bias² shrinks. The crossing point of the two component curves is suggestive but not exact; the minimum of their sum is what matters.</>}
+        lens={<>"Dominates" here means: past the U-curve minimum, each extra unit of capacity ADDS more variance than the bias² it removes, so total error rises. The bias²/variance crossing (≈deg 4) is where variance becomes the larger single component; the sum's minimum (deg 5) is where added capacity starts to hurt. This question keys on the latter — the decision-relevant point.</>}
       />
 
-      <VIS.TrapProblem
-        id="mcc-q15"
-        difficulty="hard"
-        title="Q15 — CV AUC 0.92, test AUC 0.85 — explain the 7-point gap"
-        scenario={<><em>Discriminating insight:</em> Test error and CV-tuned error can diverge when HPO sees too many trials on the same folds. XGBoost on churn data: 5-fold CV after 300 Optuna trials gives mean AUC 0.92, std 0.01 across folds. Held-out 200k test set: AUC 0.85. Random splits, so no temporal shift involved.</>}
-        options={[
-          { key: "a", text: "The test set is too small at 200k samples to give a stable AUC estimate; refit and re-evaluate on a larger split." },
-          { key: "b", text: "Optuna overfit hyperparameters to specific CV-fold quirks across 300 trials; the CV scores were optimistically inflated.", correct: true },
-          { key: "c", text: "Variance problem — XGBoost is too flexible at the tuned depth; reduce max_depth and retrain end-to-end on full data." },
-          { key: "d", text: "Bias problem — the XGBoost class can't represent the patterns; switch to a deeper neural network with richer features." },
-        ]}
-        trap={<>(a) is false — 200k gives AUC CI under 0.005. (c) misreads the diagnostic — fold-to-fold std was 0.01 (tight); model variance would show as bigger fold std. (d) does not explain why CV scores were inflated.</>}
-        lens={<>Tuning HPO 300 times on fixed CV folds is itself a fitting procedure that can overfit to fold-specific noise. The 7-point gap is HPO-overfitting, not model-overfitting. Fix: nested CV, or hold out a SECOND validation set just for HPO selection.</>}
-      />
-
-      <VIS.TrapProblem
+<VIS.TrapProblem
         id="mcc-q16"
         difficulty="medium"
         title="Q16 — Place early-stopping within the bias-variance picture"
@@ -2435,16 +2405,16 @@ flowchart TB
       <VIS.TrapProblem
         id="mcc-q17"
         difficulty="hard"
-        title="Q17 — Same data, two seeds, 88% vs 79% test accuracy"
-        scenario={<><em>Discriminating insight:</em> Variability across optimization runs is real but lives outside the classical decomposition's definition of variance. Fine-tuning DistilBERT on 50k examples with two random seeds gives 88% vs 79% test accuracy. Identical config, identical data, only the seed differs.</>}
+        title="Q17 — Seed variance confirmed: pick the best single-model fix"
+        scenario={<><em>Discriminating insight:</em> Once run-to-run variance is the diagnosis, the mitigation is an averaging choice — but you can ship only ONE model on a fixed budget. DistilBERT fine-tuning swings 88% vs 79% across seeds. You cannot serve an ensemble. Which single-model approach most reduces the seed-driven test-error noise?</>}
         options={[
-          { key: "a", text: "Different seeds explore different loss-landscape minima; the classical decomposition averages over training-set draws, not seeds.", correct: true },
-          { key: "b", text: "This IS the classical bias-variance decomposition's variance term, acting through the initialization distribution as 𝒟." },
-          { key: "c", text: "Bias problem — both seeds underfit, just at different rates; the 9-point gap is two paths to an underfit local optimum." },
-          { key: "d", text: "Test set is mis-stratified — identical data should give identical accuracy across seeds, so the split must be the bug." },
+          { key: "a", text: "SWA — average the weights along one training trajectory, settling into a flatter, more reproducible minimum for one run's cost.", correct: true },
+          { key: "b", text: "Train several seeds and ship the one with the highest validation accuracy; selecting the best seed removes the variability." },
+          { key: "c", text: "Train the single model roughly 3× longer; convergence eventually erases seed sensitivity on small fine-tuning datasets." },
+          { key: "d", text: "Swap AdamW for plain SGD with momentum; adaptive optimizers are the underlying cause of transformer seed variance." },
         ]}
-        trap={<>(b) overloads the term "variance" — colloquially these runs vary, but the formal decomposition averages over 𝒟, not seeds. (c) ignores that one seed got 88%, well above an underfit signature. (d) blames the data when the data is the same; seed variability is a known transformer-fine-tuning phenomenon (Mosbach et al. 2021).</>}
-        lens={<>The classical bias-variance decomposition averages over training-set draws, not over optimization seeds. Seed variability is a separate (but real) source of test-error noise. Fixes: deep ensembles across seeds, SWA along one trajectory, or longer/more-stable training schedules.</>}
+        trap={<>(b) is the tempting non-fix: picking the luckiest seed by val does not REDUCE variance — it gambles on it, and it quietly overfits the validation set. (c) is backwards for small-data fine-tuning: more epochs let each seed dive into a deeper-but-different minimum, often widening the spread. (d) is unsupported folklore.</>}
+        lens={<>Seed variance is reduced by AVERAGING, and with a one-model budget the averaging happens along the trajectory rather than across models: SWA (averaging weights over the tail of training) finds a flatter minimum that generalizes more stably — the single-model cousin of a deep ensemble. Selection-by-val (b) changes which realization you ship, not the variance of the procedure. Match the averaging mechanism to the serving constraint.</>}
       />
 
       <VIS.TrapProblem
@@ -2525,16 +2495,16 @@ flowchart TB
       <VIS.TrapProblem
         id="mcc-q23"
         difficulty="medium"
-        title="Q23 — Where does data augmentation sit on the U-curve?"
-        scenario={<><em>Discriminating insight:</em> Augmentation affects one specific component of the decomposition by changing what the effective training set looks like to the learner. Image classification team adds RandAugment to their training pipeline. Train accuracy drops 2 points, test accuracy gains 4 points.</>}
+        title="Q23 — Augmentation that hurt: train AND test both dropped"
+        scenario={<><em>Discriminating insight:</em> Augmentation shrinks variance ONLY when the transform preserves the label; break that and it moves a different component. A digit-recognition team adds VERTICAL FLIPS to their pipeline (on top of crops and small rotations). Train accuracy drops 3 points — and test accuracy also drops 2 points. A well-chosen augmentation should have helped test.</>}
         options={[
-          { key: "a", text: "Augmentation effectively multiplies the training set; this shrinks variance at every capacity and shifts the sweet spot RIGHT.", correct: true },
-          { key: "b", text: "Augmentation adds bias because the model learns invariances that were absent from the original empirical distribution it trains on." },
-          { key: "c", text: "Augmentation acts purely on the optimizer as a form of regularization; the bias-variance decomposition itself is unaffected." },
-          { key: "d", text: "Augmentation changes σ² because augmented images carry different label noise; the change in train/test traces a shift in σ²." },
+          { key: "a", text: "Vertical flip is not label-preserving for digits (6↔9, most others become nonsense), so it teaches false invariances — this ADDS bias.", correct: true },
+          { key: "b", text: "It multiplied the effective training set, so variance fell and the sweet spot shifted right; the small test drop is just measurement noise." },
+          { key: "c", text: "The flipped copies carry different label noise, raising σ²; the fix is to collect cleaner labels for the augmented examples." },
+          { key: "d", text: "The model now needs more capacity to absorb the larger augmented set; widen the network and the test accuracy will recover." },
         ]}
-        trap={<>(b) treats invariances as bias; learned invariances usually MATCH the test distribution's invariances (rotation, crop), so they do not add systematic error. (c) artificially excludes augmentation from the framework. (d) confuses sample augmentation with label noise.</>}
-        lens={<>Augmentation effectively multiplies the training set, shrinking variance at every capacity. This moves the U-curve down and lets higher capacities pay off (sweet spot shifts RIGHT). Train accuracy drops because the model has to fit harder examples; test gains because variance fell.</>}
+        trap={<>(b) is the well-chosen-augmentation story (variance down, sweet spot right) applied blindly — but it CANNOT explain a test DROP, which is the tell that this transform is different in kind. (c) confuses a deterministic label-breaking transform with random label noise (σ²). (d) throws capacity at a bias problem.</>}
+        lens={<>Augmentation's sign depends on whether the transform preserves the label. Label-preserving transforms (crops, small rotations) multiply effective data → variance down, sweet spot RIGHT (that is the canonical case). A label-BREAKING transform — vertical flip turning a 6 into a 9 — teaches the model an invariance the true distribution does NOT have, injecting systematic error: BIAS up. Both train and test fall because the model is now fitting a corrupted target. Match augmentations to the task's real symmetries.</>}
       />
 
       <VIS.TrapProblem
@@ -2548,7 +2518,7 @@ flowchart TB
           { key: "c", text: "You sit in the double-descent regime past the interpolation threshold; keep scaling width until you see a second descent emerge." },
           { key: "d", text: "Variance is zero because the data is essentially noiseless on this task; only bias matters here and larger models do better." },
         ]}
-        trap={<>(a) is the over-strong reading of double descent — even in modern regimes, you observe a U then a descent, not zero U. (c) is plausible but: starting at width 32 on 1k examples, the FIRST minimum should still be visible. (d) is invented; few real datasets are noiseless.</>}
+        trap={<>(a) is the over-strong reading of double descent — even in modern regimes, you observe a U then a descent, not zero U. (c) is plausible but less likely: on only 1k examples the first-descent minimum can sit at or below width 32, yet a leaked/tiny val set explains a perfectly monotone curve far more simply. (d) is invented; few real datasets are noiseless.</>}
         lens={<>When validation does not U-curve on a small dataset, the likely cause is measurement: a tiny val set has noise that swamps signal, or the val set leaked into training augmentations / preprocessing. Audit the split, then re-run. The U-curve is a robust prediction; if you do not see it, suspect measurement.</>}
       />
 
