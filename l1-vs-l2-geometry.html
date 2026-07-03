@@ -1447,11 +1447,456 @@ flowchart LR
         <VIS.Term def="A regularizer that combines L1 and L2: α·||w||₁ + (1-α)·||w||₂². Gives sparsity from L1 + stability from L2 on correlated features.">Elastic Net</VIS.Term>.
       </VIS.Callout>
       <VIS.Callout kind="info" title="Bayesian view: priors over weights">
-        Adding L2 to loss ⟺ Gaussian prior on weights (MAP estimate). Adding L1 ⟺ Laplace prior. The Laplace prior's sharp peak at 0 IS the mechanism that makes posteriors concentrate on exact-zero weights.
+        Adding L2 to loss ⟺ Gaussian prior on weights (MAP estimate). Adding L1 ⟺ Laplace prior. Careful with the fine print: the Laplace prior's sharp peak at 0 makes the posterior MODE (the MAP point) land on exact zeros — the full posterior has zero mass at wⱼ=0, so the posterior mean is never sparse (see drill p24).
       </VIS.Callout>
       <VIS.Callout kind="gotcha" title="Don't pre-standardize and forget">
         Both L1 and L2 are scale-sensitive — features with different units get different effective regularization. Always standardize features before applying L1/L2. (And do it inside a Pipeline so the scaler is fit on train only — see pipeline-order-for-leakage-prevention card.)
       </VIS.Callout>
+    </VIS.Section>
+
+    <VIS.Section id="sec-drill" title="Test yourself — trap drills">
+      <p>
+        Twenty-five problems that hinge on the geometry and its consequences — the <VIS.Term def="A weight vector where most entries are exactly zero, so the model ignores most input features entirely.">sparsity</VIS.Term> mechanism, the solver mechanics that deliver (or silently fail to deliver) exact zeros, and the production decisions downstream. Decoys are all defensible somewhere; read each brief carefully.
+      </p>
+
+      {/* C1 — KKT dead zone / equiangular active set */}
+      <VIS.TrapProblem
+        id="l1l2g-p1"
+        difficulty="hard"
+        title="Every active feature has the SAME residual correlation — bug or theorem?"
+        scenario={<>You inherit a lasso credit-risk model (n=80k, d=3,100, standardized features). While debugging you print <code>|X.T @ residual|</code> — each feature's correlation with the <VIS.Term def="What the model has not yet explained: the actual target minus the current prediction, r = y − Xw.">residual</VIS.Term> — for every feature. The 214 features with nonzero weights all show values within 0.01% of each other — a flat plateau — while all zero-weight features sit strictly below it. A teammate opens a ticket: "residual correlations are suspiciously identical, suspect data corruption."</>}
+        options={[
+          {key:"a", text:"This is the optimality condition of the L1 penalty itself: active features must satisfy |xⱼᵀr| = nλ exactly, inactive ones sit at or below nλ. The fit is healthy.", correct:true},
+          {key:"b", text:"The plateau indicates duplicated columns in the design matrix; identical residual correlations only occur when features are near-copies of each other."},
+          {key:"c", text:"It is float32 saturation — residual correlations above the penalty scale get clipped by the solver for numerical stability."},
+          {key:"d", text:"The solver stopped at its iteration cap; a converged lasso shows a smooth spread of residual correlations across active features."},
+        ]}
+        trap={<>(b) is the tempting one — "identical statistics = data bug" is a good reflex elsewhere. But here the equality is the <VIS.Term def="Karush-Kuhn-Tucker conditions: the equations that certify a point is optimal for a constrained/penalized problem.">KKT</VIS.Term> optimality condition itself: L1's constant-magnitude subgradient forces every active coordinate to ride at exactly the penalty level — the equiangular property <VIS.Term def="Least Angle Regression: an algorithm that traces the entire lasso solution path, adding one feature at a time as its residual correlation catches up to the active set's.">LARS</VIS.Term> is built on.</>}
+        lens={<>At a lasso optimum, stationarity gives xⱼᵀr = nλ·sign(wⱼ) for active features (|w|'s <VIS.Term def="For a non-smooth function, the set of all valid slopes at a point. For |w| at 0 it is the whole interval [-1, 1].">subgradient</VIS.Term> is ±1 there) and |xⱼᵀr| ≤ nλ for inactive ones (the subgradient interval absorbs the rest). The plateau is the signature of a converged fit — a healthy lasso looks "corrupted" to someone expecting ridge-like smooth decay.</>}
+        stretch={<>What would the same printout look like for ridge at its optimum?</>}
+      />
+
+      {/* C2 — soft-thresholding / ISTA step-size bug */}
+      <VIS.TrapProblem
+        id="l1l2g-p2"
+        difficulty="hard"
+        title="Hand-rolled ISTA is 40× sparser than sklearn at the same λ"
+        scenario={<>An intern implements lasso via <VIS.Term def="Iterative Shrinkage-Thresholding Algorithm: a gradient step on the smooth loss, then soft-threshold each coordinate. The standard proximal way to optimize an L1 penalty.">ISTA</VIS.Term> for a streaming system, but at the λ where sklearn keeps 800 features, this keeps 19:</>}
+        diagram={<VIS.CodeBlock lang="python">{`eta = 1e-3  # step size
+for _ in range(5000):
+    w = w - eta * grad_loss(w)
+    w = soft_threshold(w, lam)   # S(z, t) = sign(z) * max(|z|-t, 0)`}</VIS.CodeBlock>}
+        options={[
+          {key:"a", text:"The proximal step must use the scaled threshold η·λ, not λ — at η=1e-3 the loop is effectively solving a ~1000× larger penalty.", correct:true},
+          {key:"b", text:"ISTA requires momentum (FISTA) to converge; without it the iterates collapse toward zero regardless of the threshold used."},
+          {key:"c", text:"soft_threshold must only be applied once, after the loop; applying it inside the loop compounds the penalty 5000 times."},
+          {key:"d", text:"grad_loss must include the L1 term's gradient; omitting it makes the effective λ appear larger than intended."},
+        ]}
+        trap={<>(d) sounds like textbook rigor and is exactly backwards — the whole point of <VIS.Term def="Optimization methods that handle a non-smooth penalty via its proximal operator (a closed-form mini-problem) instead of differentiating it.">proximal methods</VIS.Term> is that the non-smooth L1 term is handled by the prox operator, never differentiated. The real bug is the threshold scale.</>}
+        lens={<>ISTA solves min L(w)+λ||w||₁ via w ← S(w − η∇L(w), <strong>ηλ</strong>). The threshold inherits the step size because the prox is taken on η times the penalty. Threshold by λ with η=1e-3 and you are effectively running 1000λ — brutally sparse and badly biased. FISTA (b) changes only the convergence <em>rate</em> (O(1/k²) vs O(1/k)), not the fixed point.</>}
+        stretch={<>Why does one-shot thresholding at the end (c) match lasso exactly when the design is orthonormal — and fail otherwise?</>}
+      />
+
+      {/* D4 — no exact zeros under SGD/Adam: optimizer vs geometry misattribution */}
+      <VIS.TrapProblem
+        id="l1l2g-p3"
+        difficulty="hard"
+        title="PyTorch model with L1 penalty: zero exact zeros after 100 epochs"
+        scenario={<>You add <code>lam * w.abs().sum()</code> to a PyTorch logistic model's loss to get feature selection, train 100 epochs with Adam, and inspect the weights: smallest |w| ≈ 3e-7, but <em>not one</em> weight is exactly 0.0 across 40k parameters. Your teammate concludes: "the diamond-corner story is a textbook idealization — real optimizers never actually produce zeros."</>}
+        options={[
+          {key:"a", text:"The geometry is fine; the optimizer is wrong for the job — plain (sub)gradient steps overshoot and oscillate around 0 without ever landing on it.", correct:true},
+          {key:"b", text:"The teammate is right: exact zeros are an artifact of closed-form linear solvers and cannot occur in any iterative first-order method."},
+          {key:"c", text:"λ is simply too small; raising it until the penalty dominates the loss will start producing exact floating-point zeros under Adam."},
+          {key:"d", text:"Autograd cannot differentiate |w| at 0, so PyTorch silently drops the penalty gradient near zero, leaving weights stuck at tiny nonzero values."},
+        ]}
+        trap={<>(c) is the seductive knob — but scaling λ changes only how <em>small</em> the oscillation band around zero is, not whether an additive float update ever lands on exactly 0.0 (a measure-zero event). The failure is categorical, not a tuning issue.</>}
+        lens={<>Sparsity comes from the <em>prox</em> of the L1 penalty — soft-thresholding truncates a whole interval to exactly 0 — not from its gradient. Subgradient methods never invoke the prox, so they inherit the penalty's shrinkage but not its zeros. That is why sklearn's SGDClassifier needs the cumulative truncated-gradient trick to get real zeros, and why ISTA/coordinate-descent produce them natively. The diamond picture describes the <em>optimum</em>; whether your algorithm reaches the corner exactly is an optimizer property.</>}
+        stretch={<>AdamW decouples weight decay from the adaptive gradient. What would a "decoupled L1" update look like — and which classic operator is it?</>}
+      />
+
+      {/* C2b — L2 restoring force vanishes at 0 */}
+      <VIS.TrapProblem
+        id="l1l2g-p4"
+        difficulty="hard"
+        title="Why L2's pull fades exactly when it is about to succeed"
+        scenario={<>Forget the picture for a second and think in forces. A dead feature (no gradient signal from the data) has some leftover weight w₀ from initialization. Under continuous-time <VIS.Term def="Gradient descent with an infinitesimally small step size — the smooth idealized trajectory the optimizer follows.">gradient flow</VIS.Term> on just the penalty, which statement correctly contrasts what the two regularizers do to that weight?</>}
+        options={[
+          {key:"a", text:"L2's restoring force 2λw shrinks with w — exponential decay that never arrives. L1's constant force λ reaches exactly 0 in finite time w₀/λ.", correct:true},
+          {key:"b", text:"Both forces vanish at w=0 by continuity; the difference is only that L1's force is larger for |w| below 1, so it merely gets there faster."},
+          {key:"c", text:"L1's force grows without bound as w→0 (the derivative of |w| blows up), which is what snaps the weight to zero almost instantly."},
+          {key:"d", text:"L2 reaches zero first: its force 2λw exceeds L1's constant λ whenever w is greater than 1/2, and dead weights start large."},
+        ]}
+        trap={<>(b) is the analysis-flavored decoy: |w|'s derivative is <em>discontinuous</em> at 0, not vanishing — the pull stays at full strength λ all the way in. L2's force 2λw fades linearly with w, so it slows down exactly as it approaches the goal.</>}
+        lens={<>This is the analytic twin of the corner picture: a constant-magnitude pull (L1) closes the last micrometer as decisively as the first; a proportional pull (L2) decays exponentially, w(t)=w₀e^(−2λt), never arriving. Same reason soft-thresholding truncates an entire interval to 0 while ridge's multiplicative shrink z/(1+2λ) preserves sign and ordering.</>}
+        stretch={<>(d) fails for a second reason: even on the stretch where 2λw exceeds λ, why can the L2 trajectory still never overtake L1 to zero?</>}
+      />
+
+      {/* A1 — penalty vs constraint equivalence */}
+      <VIS.TrapProblem
+        id="l1l2g-p5"
+        difficulty="hard"
+        title="Swapping the λ-penalty for a hard constraint 'for reproducibility'"
+        scenario={<>Your platform team wants reproducible regularization across quarterly retrains. Proposal: "replace loss + λ||w||₁ with the constrained form ||w||₁ ≤ t, and keep a fixed conversion table between λ and t so both forms stay interchangeable across datasets." Two models are in scope: (i) a linear lasso credit model, (ii) a deep ranking network with the L1 term on its final layer.</>}
+        options={[
+          {key:"a", text:"For (i) the forms trace the same solution family but the λ↔t map is data-dependent, so no fixed table survives a retrain; for (ii) the equivalence itself can fail.", correct:true},
+          {key:"b", text:"The forms are identical for (i) and (ii) alike by Lagrangian duality, with λ↔t given by a universal closed-form map — one fixed table is valid for both models across datasets."},
+          {key:"c", text:"The constrained form is strictly stronger for both models: it enforces the sparsity budget with certainty on every retrain, while the penalty form only encourages it probabilistically."},
+          {key:"d", text:"The penalty form is the invalid one for (i): regulated credit models need auditable hard budgets, which is why lasso is stated as a constraint in the original paper; (ii) works either way."},
+        ]}
+        trap={<>(b) over-trusts duality: strong duality (convex case) guarantees <em>some</em> corresponding t for each λ — but that correspondence is a property of this dataset's loss surface, not a formula. Fix λ, refresh the data, and the equivalent t moves.</>}
+        lens={<>Penalty and constraint are two parameterizations of the same convex frontier, linked through a data-dependent bijection (Tibshirani 1996 states lasso both ways). Non-convexity severs even that: a constrained solution can exist that no penalty multiplier reproduces (duality gap). "Reproducible regularization" means pinning the <em>procedure</em> — how λ or t is chosen — not a conversion table.</>}
+        stretch={<>Which of the two forms does projected gradient descent naturally implement, and what is the projection onto the L1 ball called?</>}
+      />
+
+      {/* A2 — L∞ corner trap */}
+      <VIS.TrapProblem
+        id="l1l2g-p6"
+        difficulty="hard"
+        title="If corners cause sparsity, the L∞ ball should be the sparsity king"
+        scenario={<>A study-group friend runs the corner logic forward: "The L1 ball in d dimensions has 2d corners. The L∞ ball — a cube — has 2ᵈ corners, exponentially more. So an L∞ penalty on max|wⱼ| should give far more zeros than L1." They even sketch the 2-D square with its 4 corners as evidence.</>}
+        options={[
+          {key:"a", text:"Corners help only if they sit ON the axes. The cube's corners have every |wⱼ| at the same maximal value, so L∞ tangency TIES weights together instead of zeroing them.", correct:true},
+          {key:"b", text:"They are right in principle; L∞ is avoided in practice only because max|wⱼ| is much more expensive to optimize than a sum of absolute values."},
+          {key:"c", text:"The corner count is irrelevant because in high dimensions tangency almost surely happens on faces for any polytope, so neither L1 nor L∞ actually yields zeros."},
+          {key:"d", text:"L∞ does give more zeros, but they appear in the dual variables, which is why the effect is invisible in the primal weight vector."},
+        ]}
+        trap={<>The counting argument (more corners = more sparsity) keeps the "corner" slogan and drops the geometry that made it work. WHERE a corner is matters more than how many there are: an L∞ optimum typically has many weights at the SAME maximal magnitude — the exact opposite of sparse.</>}
+        lens={<>A vertex of the L1 ball is ±t·eⱼ — one active coordinate, everything else exactly 0. A vertex of the cube is (±t, ±t, …, ±t) — all coordinates active and equal. Sticky points (corners with wide <VIS.Term def="The set of directions in which a point on a convex body is the closest point — wide at corners, a single ray on smooth boundary. Wide cone = many loss surfaces land there.">normal cones</VIS.Term>) attract solutions, so each penalty drives weights toward the structure of ITS vertices: L1 → axis-sparse, L∞ → magnitude-tied (used deliberately for weight bounding).</>}
+        stretch={<>Nuclear norm is L1 on singular values. What do the extreme points of its unit ball look like, and what structure does it therefore induce?</>}
+      />
+
+      {/* A4 — elastic net corner-rounding trap */}
+      <VIS.TrapProblem
+        id="l1l2g-p7"
+        difficulty="hard"
+        title="Does the L2 term in elastic net destroy the corners — and the zeros?"
+        scenario={<>Design review for a churn model with correlated usage features. You propose elastic net with l1_ratio=0.5. A reviewer objects: "the L2 component rounds the diamond into a smooth blob — you lose the corners, so you lose exact zeros. If we need selection, it must be pure L1."</>}
+        options={[
+          {key:"a", text:"The edges bulge outward but the penalty keeps its kink at every wⱼ=0, so axis creases — and exact zeros — survive at any l1_ratio above 0. That objection describes pure L2.", correct:true},
+          {key:"b", text:"The reviewer is right: any positive L2 weight makes the combined penalty smooth at the origin, so elastic net produces small-but-nonzero weights like ridge."},
+          {key:"c", text:"Elastic net keeps zeros only when l1_ratio is at least 0.5; below that threshold the L2 curvature dominates the kink and the corners vanish."},
+          {key:"d", text:"Elastic net keeps corners, but they rotate off the axes toward correlated directions, so zeros land on feature pairs rather than single features."},
+        ]}
+        trap={<>(c) invents a plausible-sounding phase transition. Non-differentiability is not a tug-of-war the L2 term can win by majority: |wⱼ| contributes a kink at 0 no matter how small its coefficient, and a kink is all soft-thresholding needs. The threshold shrinks as l1_ratio → 0 — but it never disappears until exactly 0.</>}
+        lens={<>Smoothness is decided term-by-term at the point in question: w² is smooth at 0, |w| is not, and their sum with any positive |w| coefficient is not. Geometrically the elastic-net ball is a diamond with bulged edges but intact axis creases; its coordinate update is soft-threshold first, ridge-style rescale second — zeros, then sharing. Strict convexity from the L2 part also buys a unique solution, which pure lasso cannot promise.</>}
+        stretch={<>Zou &amp; Hastie's grouping theorem bounds |ŵᵢ−ŵⱼ| via √(2(1−ρᵢⱼ)). Which term of the penalty does that bound come from?</>}
+      />
+
+      {/* A5 — basis dependence / rotation */}
+      <VIS.TrapProblem
+        id="l1l2g-p8"
+        difficulty="hard"
+        title="PCA-whitening 'for conditioning' quietly changed what lasso selects"
+        scenario={<>A teammate preprocesses a 900-feature marketing dataset with <VIS.Term def="Rotating data into its principal-component basis and rescaling each component to unit variance. Improves numerical conditioning but mixes the original features together.">PCA whitening</VIS.Term> ("the design matrix was ill-conditioned; coordinate descent converged 6× faster") and then fits lasso for feature selection. The model predicts fine, but stakeholders asked WHICH signup and usage fields matter — and nothing in the selection report maps to original columns.</>}
+        options={[
+          {key:"a", text:"Sparsity is basis-dependent: lasso zeros coordinates of whatever basis you fit in. After rotation it selects principal components — dense when mapped back to raw features.", correct:true},
+          {key:"b", text:"Whitening only rescales axes, so the selected set is the same up to sign; the report just needs the inverse transform applied to recover the feature names."},
+          {key:"c", text:"The bug is numerical: whitening equalizes eigenvalues, so the lasso path degenerates and the selected components are arbitrary noise."},
+          {key:"d", text:"Lasso after whitening is invalid because whitened features violate the standardization assumption the L1 penalty requires to be meaningful."},
+        ]}
+        trap={<>(b) treats a rotation like a renaming. A rotation MIXES features: one principal component blends hundreds of raw columns, so "component 17 is selected" translates back to a dense combination — the interpretability you wanted from L1 is gone, and no name-mapping rescues it.</>}
+        lens={<>||Qw||₂ = ||w||₂ for a pure rotation Q, so the rotation alone leaves ridge indifferent — though whitening also RESCALES each component, and that part does affect ridge (it is scale-sensitive, see p22). ||w||₁ is preserved only under signed permutations of the axes, so the rotation by itself already destroys L1's selection. That asymmetry IS the diamond: its corners are axis-aligned, and "which basis defines the axes?" is a modeling decision you make before fitting. Whiten when you want component selection; stay in raw features when the question is about raw features (and fix conditioning with elastic net or scaling instead).</>}
+        stretch={<>Group lasso is rotation-invariant WITHIN groups but L1 across them. When is that exactly the right invariance structure?</>}
+      />
+
+      {/* F1 — duplicated column edge case (multi) */}
+      <VIS.TrapProblem
+        id="l1l2g-p9"
+        difficulty="hard"
+        multiSelect
+        title="Two identical columns walk into a regression — select all that apply"
+        scenario={<>By a pipeline bug, <code>days_active</code> is present twice (byte-identical columns i and j) in a 200-feature dataset. You fit (1) ridge and (2) lasso; both converge. Select all statements that are TRUE.</>}
+        options={[
+          {key:"a", text:"Ridge gives a unique, symmetric answer: the pair's total weight is split evenly between the two copies — strict convexity forces it.", correct:true},
+          {key:"b", text:"Lasso's optimum is NON-unique: any same-sign split of the pair's total weight achieves the identical objective, so the solver's particular choice is arbitrary.", correct:true},
+          {key:"c", text:"Despite that coefficient ambiguity, lasso's fitted values Xŵ — hence its predictions and loss — are the same across all those solutions.", correct:true},
+          {key:"d", text:"Lasso will error out: byte-identical columns make the design matrix rank-deficient, and the subgradient optimality conditions become unsatisfiable at the kink."},
+          {key:"e", text:"Ridge zeroes one of the two copies: keeping both at nonzero values wastes squared-norm budget, and the strictly convex objective prefers concentrating the weight."},
+        ]}
+        trap={<>(e) inverts the two penalties' personalities. It is <em>lasso</em> that is indifferent between concentrating and splitting (|a|+|b| is constant along a+b=c for same signs), while ridge's a²+b² strictly prefers the even split. The "wasted budget" intuition belongs to L1's corner logic, not L2's ball.</>}
+        lens={<><VIS.Term def="A bowl with no flat regions: a strictly convex objective has exactly one minimizer, so ties are impossible.">Strict convexity</VIS.Term> (ridge) buys uniqueness; mere convexity (lasso) does not. But the ambiguity lives only in coefficient space along duplicated directions — the <VIS.Term def="The model's predictions on the training rows: X times the learned weights.">fitted values</VIS.Term> are always unique (R. Tibshirani 2013, "The lasso problem and uniqueness"). This is the smallest clean case of the correlated-feature lottery: at ρ=1, "which copy gets the weight" has literally no answer in the objective.</>}
+        stretch={<>Perturb the copies with tiny independent noise (ρ=0.999). What happens to lasso's choice across bootstrap resamples?</>}
+      />
+
+      {/* F3 — reverse-engineer: selection flip-flop across retrains */}
+      <VIS.TrapProblem
+        id="l1l2g-p10"
+        difficulty="hard"
+        title="Feature set churns every weekly retrain — AUC does not move"
+        scenario={<>A weekly-retrained lasso fraud model (d=4,000 engineered features, many near-duplicates across data vendors) shows this pattern over six retrains: <code>vendorA_geo_risk</code> is selected in weeks 1, 3, 4; <code>vendorB_geo_risk</code> (correlation ≈0.97 with it) in weeks 2, 5, 6. Validation <VIS.Term def="Area under the ROC curve — a ranking-quality metric. 0.5 is coin-flip, 1.0 is perfect.">AUC</VIS.Term> is stable at 0.912±0.002 throughout. Compliance asks why the "important features" list keeps changing.</>}
+        options={[
+          {key:"a", text:"Near-duplicate features make lasso's optimum nearly non-unique; weekly sampling noise flips which twin is kept, while fitted values — hence AUC — stay put.", correct:true},
+          {key:"b", text:"Vendor data freshness is alternating week to week; the model is correctly tracking whichever vendor's signal is stronger, and the stable AUC confirms the tracking works."},
+          {key:"c", text:"The retrains use different random seeds, and lasso coordinate descent is stochastic — pinning the seed will pin the selected set."},
+          {key:"d", text:"λ is tuned too weakly, admitting noise features; raising λ until only one geo feature ever appears will stabilize the support and improve AUC."},
+        ]}
+        trap={<>(b) is the sophisticated-sounding decoy: it explains the alternation with a real phenomenon (drift) that the evidence contradicts — genuine signal swaps between vendors would move AUC and would not produce a clean either/or between two ρ≈0.97 twins. Stable predictions + unstable support is the geometry's fingerprint, not the data's.</>}
+        lens={<>Near-collinear columns place the loss ellipse's tangency almost along a face direction of the diamond: several supports achieve essentially the same objective, and week-to-week noise picks the winner. Fitted values unique, coefficients not. The compliance answer is to report the correlated CLUSTER as the important unit — or change the estimator — not to let the story be "importance oscillates."</>}
+        stretch={<>Which penalty modification makes the two twins enter together with similar weights, by construction?</>}
+      />
+
+      {/* F5-fix — stability selection */}
+      <VIS.TrapProblem
+        id="l1l2g-p11"
+        difficulty="hard"
+        title="Pick the fix that targets selection instability itself"
+        scenario={<>Continuing the flip-flopping fraud model: compliance requires a DEFENSIBLE, stable "features used" list, and the science team wants to keep L1-style selection rather than go dense. Which intervention most directly targets the instability mechanism?</>}
+        options={[
+          {key:"a", text:"Stability selection: rerun lasso on many subsamples and report the features selected in at least a threshold fraction of runs (Meinshausen–Bühlmann).", correct:true},
+          {key:"b", text:"Switch the solver from coordinate descent to LARS, which computes the exact solution path and therefore returns the canonical support at the chosen λ."},
+          {key:"c", text:"Standardize the features and re-tune λ by nested CV — support instability is a symptom of penalty mis-scaling across features."},
+          {key:"d", text:"Replace lasso with ridge and report the top-k features by absolute coefficient; ridge's unique optimum guarantees the list is stable."},
+        ]}
+        trap={<>(d) buys uniqueness but breaks the tool: ridge splits weight across each correlated cluster and shrinks by direction variance, so top-k |w| is not a selection statistic — the list is stable AND wrong. Stability must come from integrating over the selection randomness, not from switching to a method that never selects.</>}
+        lens={<>The instability is randomness in WHICH near-equivalent support wins, so the principled cure integrates over it: subsample, refit, keep features whose selection frequency clears a threshold — with an expected-false-positives bound as a bonus. (b) misreads non-uniqueness as a solver artifact: LARS returns <em>a</em> path, but the near-ties across supports remain. (c) fixes a disease the scenario ruled out — the features were engineered to comparable scales.</>}
+        stretch={<>What do you pay for stability selection's false-positive control — think about genuinely weak-but-real features?</>}
+      />
+
+      {/* F4 — saturation d>n */}
+      <VIS.TrapProblem
+        id="l1l2g-p12"
+        difficulty="hard"
+        title="Lasso refuses to select more than 200 genes"
+        scenario={<>Genomics screen: n=200 samples, d=52,000 standardized expression features. Biologists expect ~600 relevant genes from prior literature. You sweep λ from λ_max downward and plot support size: it climbs smoothly, then pins at exactly 200 and will not exceed it no matter how small λ gets — long before CV error bottoms out.</>}
+        options={[
+          {key:"a", text:"Structural: with squared loss the lasso support cannot exceed n — at 200 active features the residual reaches zero and nothing more can enter. Elastic net lifts the ceiling.", correct:true},
+          {key:"b", text:"The λ grid's floor is still too high; extending the sweep another decade lower will let the support grow past n toward the expected 600."},
+          {key:"c", text:"Coordinate descent hits its iteration cap once the active set is large; raising max_iter or loosening tol releases the ceiling."},
+          {key:"d", text:"The cap at n reflects statistical reality — with more active features than samples the fit would be unidentifiable, so lasso is correctly reporting that 600 is impossible."},
+        ]}
+        trap={<>(d) dresses the artifact up as wisdom. Estimating 600 individual coefficients from 200 samples IS hard — but "support size pins at exactly my sample count" is the algorithm's saturation property (each LARS step adds one feature; at most n steps reach a zero-residual interpolant), not an oracle statement about the biology.</>}
+        lens={<>Once n linearly independent features are active, the residual hits zero and every feature's KKT correlation collapses below the threshold — nothing more can enter. Zou &amp; Hastie flagged exactly this ceiling (plus correlated-gene grouping) as elastic net's motivation: the L2 term keeps the objective strictly convex, so the support can exceed n and correlated genes enter together. Support size == n exactly is a tell: suspect the ceiling, not the science.</>}
+        stretch={<>Why does the hard ceiling not appear in the same form for logistic-loss lasso — and what soft version survives?</>}
+      />
+
+      {/* D2 — irrepresentable condition / zeros ≠ ground truth (multi) */}
+      <VIS.TrapProblem
+        id="l1l2g-p13"
+        difficulty="hard"
+        multiSelect
+        title="'Lasso zeroed it, so it is irrelevant' — audit the cascade"
+        scenario={<>A lasso fit on three years of claims data selects 61 of 890 features with strong CV performance. A platform team proposes: (i) delete the ETL pipelines for the 829 zeroed features, (ii) record the 61 as "the causal drivers of claims cost" in the model card, (iii) skip re-running selection at the next retrain since the truth is now known. Select every statement that is TRUE.</>}
+        options={[
+          {key:"a", text:"Recovering exactly the true support needs conditions beyond good CV error — an irrepresentable-type condition on the design plus a minimum-signal-strength condition — and nobody has verified either here.", correct:true},
+          {key:"b", text:"With correlated features, lasso can zero a genuinely predictive feature because a correlate absorbed its role — zeroed does not mean uninformative.", correct:true},
+          {key:"c", text:"A feature zeroed at this λ can re-enter the active set at a different λ or after a data refresh; the support is an estimate, not a discovered constant.", correct:true},
+          {key:"d", text:"Strong CV performance certifies the selected support: predictive optimality and support recovery are the same statistical target measured two different ways, so the model-card claim is safe."},
+          {key:"e", text:"The λ that predicts best is also the λ that best recovers the true support — CV tuning therefore automatically optimizes the model card's claim along with the loss."},
+        ]}
+        trap={<>(d)/(e) merge two different games. The prediction-optimal λ (what CV tunes) is systematically SMALLER than the selection-optimal λ — it happily keeps weak or noise features because they cost almost nothing in MSE. You can predict beautifully with the wrong support, and the wrong support is then what the model card enshrines.</>}
+        lens={<>Zhao &amp; Yu's <VIS.Term def="A technical condition requiring that irrelevant features not be too well-approximated by the relevant ones. If violated, lasso includes false features at every useful penalty level, regardless of sample size.">irrepresentable condition</VIS.Term> is the fine print under "lasso finds the truth": violate it and impostor features enter at EVERY useful λ, forever. So (i) is an infrastructure bet on an estimate — fine as cost-saving with a rollback path, dangerous as a one-way door; (ii) confuses regularized selection with causal discovery; (iii) forgets the support is data-dependent. The zeros are a compressed MODEL, not a verdict on the world.</>}
+        stretch={<>Naive p-values computed on the selected 61 are also invalid. What exactly did the selection step break?</>}
+      />
+
+      {/* D1 — threshold ridge to mimic selection */}
+      <VIS.TrapProblem
+        id="l1l2g-p14"
+        difficulty="hard"
+        title="'Just threshold the ridge coefficients' — the cheap-selection shortcut"
+        scenario={<>Latency review: the team already ships a well-tuned ridge model on 5,000 standardized features and wants a 300-feature version. A senior dev proposes: "skip retraining with L1 — sort ridge's |wⱼ|, keep the top 300, refit. Ridge already ranks feature importance; L1 would just threshold the same ranking anyway."</>}
+        options={[
+          {key:"a", text:"Ridge shrinks by direction variance and shares weight across correlated clusters, so its |w| ranking is not a selection statistic; the claimed equivalence holds only for orthonormal designs.", correct:true},
+          {key:"b", text:"The proposal is sound: on standardized features, ridge and lasso order coefficients identically; they differ only in whether the tail is exactly zero or merely small."},
+          {key:"c", text:"The proposal fails only at the refit step — thresholding is fine, but refitting the top 300 without regularization reintroduces the overfitting ridge had removed."},
+          {key:"d", text:"Ridge coefficients are not individually identifiable — only the full 5,000-dim vector is meaningful — so no subset of them can be interpreted or kept."},
+        ]}
+        trap={<>(b) holds in exactly one world: an orthonormal design, where ridge scales every <VIS.Term def="Ordinary least squares — the plain unregularized linear-regression fit.">OLS</VIS.Term> coefficient by the same factor and lasso soft-thresholds the same ordering. Real correlated features break it — a true driver sharing its weight across six correlates can rank below a lone mediocre feature that keeps its weight concentrated.</>}
+        lens={<>In the principal-component basis, ridge multiplies each direction by dⱼ²/(dⱼ²+λ): shrinkage is budgeted by the VARIANCE of directions, not the relevance of features. Lasso instead runs a per-feature competition against a fixed penalty level (enter iff |xⱼᵀr| clears nλ). The two disagree precisely where selection is hard — correlation and weak signals — which is when you needed the tool to work. If the product requirement is sparsity, put sparsity in the objective.</>}
+        stretch={<>There IS a valid two-stage scheme here: fit, then re-run lasso with per-feature penalty weights 1/|ŵ_init|^γ. What is it called and what does it buy?</>}
+      />
+
+      {/* D3 — senior vs junior: path + 1-SE (multi) */}
+      <VIS.TrapProblem
+        id="l1l2g-p15"
+        difficulty="hard"
+        multiSelect
+        title="Tuning λ like a senior — select every claim that is actually true"
+        scenario={<>A junior tunes lasso by grid-searching eight alphas in a log range chosen by feel, cold-starting each fit, and picking the CV minimum. A senior rewrites the search. Which of the following senior-flavored claims are TRUE?</>}
+        options={[
+          {key:"a", text:"There is a computable λ_max = maxⱼ |xⱼᵀy| / n above which the lasso solution is all-zeros — the principled top of the grid (it is how sklearn and glmnet build their alpha grids).", correct:true},
+          {key:"b", text:"Solving the path from λ_max downward with warm starts is often cheaper than a handful of cold fits — each solution seeds the next (the glmnet strategy).", correct:true},
+          {key:"c", text:"The one-standard-error rule picks the sparsest model whose CV error is within one standard error of the minimum — trading statistically negligible error for a simpler support.", correct:true},
+          {key:"d", text:"sklearn's LassoCV already applies the one-standard-error rule internally: its alpha_ attribute IS the 1-SE alpha computed from mse_path_, so no extra code is needed."},
+          {key:"e", text:"Ridge has an analogous finite λ_max above which its coefficients are exactly zero — it just sits far higher than lasso's because multiplicative shrinkage is gentler."},
+        ]}
+        trap={<>(d) and (e) are the resume-padding decoys. LassoCV returns only the CV-min alpha — the 1-SE rule must be hand-rolled from mse_path_ (glmnet users expect lambda.1se and get burned porting). And ridge has NO finite all-zeros threshold: multiplicative shrinkage approaches zero only asymptotically, so "ridge λ_max" is a category error.</>}
+        lens={<>λ_max exists for lasso because w=0 stays optimal until some feature's residual correlation exceeds the penalty — a threshold event, courtesy of the subgradient interval at the corner. Ridge's optimum leaves zero for ANY positive signal, so there is nothing to threshold. The senior workflow — path from λ_max, warm starts, 1-SE parsimony — is the corner geometry translated into compute strategy.</>}
+        stretch={<>Why does the 1-SE rule bias specifically toward SPARSER models on a lasso path, rather than merely "different" ones?</>}
+      />
+
+      {/* E3 — sklearn solver matrix (multi) */}
+      <VIS.TrapProblem
+        id="l1l2g-p16"
+        difficulty="hard"
+        multiSelect
+        title="LogisticRegression(penalty='l1') crashes — select all true statements"
+        scenario={<>A teammate hits <code>ValueError: Solver lbfgs supports only l2 or None penalties</code> when adding L1 to sklearn's LogisticRegression, and asks you to review their fix options. Select all statements that are TRUE.</>}
+        options={[
+          {key:"a", text:"lbfgs (the default solver since 0.22) cannot optimize the non-smooth L1 term — the error is expected behavior, not a bug.", correct:true},
+          {key:"b", text:"saga supports l1, l2, elasticnet, and None — it is the only built-in solver covering elasticnet for LogisticRegression.", correct:true},
+          {key:"c", text:"liblinear supports l1 but penalizes the intercept along with the weights and handles multiclass one-vs-rest — both can change results versus saga.", correct:true},
+          {key:"d", text:"penalty='l1' works with lbfgs if you also pass dual=True, which switches to the smooth dual formulation of the L1 problem."},
+          {key:"e", text:"newton-cg supports l1 because second-order information is unaffected by the penalty's non-differentiability at zero."},
+        ]}
+        trap={<>(d) and (e) sell the same fantasy — that enough optimizer sophistication makes the kink at 0 disappear. Curvature methods are WORSE at kinks (no Hessian exists there), and dual=True is a liblinear-only flag for the L2 dual. The kink is why L1 solvers are a special club — proximal and coordinate methods — not a checkbox.</>}
+        lens={<>Solver support maps directly onto the geometry: smooth-only optimizers (lbfgs, newton-cg, sag, newton-cholesky) live on the differentiable L2 ball; exact zeros demand machinery built for the diamond (saga's proximal steps, liblinear's coordinate descent). And liblinear's quirks — penalized intercept, one-vs-rest multiclass — are model-changing, not cosmetic: "fixing" the error by switching solvers can silently change the estimator you ship.</>}
+        stretch={<>Why is the intercept conventionally excluded from regularization in the first place?</>}
+      />
+
+      {/* C4/E — C is inverse and not n-scaled */}
+      <VIS.TrapProblem
+        id="l1l2g-p17"
+        difficulty="hard"
+        title="Same C, 10× more data — the model quietly deregularized itself"
+        scenario={<>Your L1 logistic churn model (sklearn, saga, C=0.1) trained monthly on ~1M rows and kept ~140 features. After a warehouse migration consolidates history, the identical training job runs on ~10M rows — same schema, same class balance, same hyperparameters — and now keeps 640 features, with mild overfitting appearing on the temporal holdout.</>}
+        options={[
+          {key:"a", text:"sklearn sums the data term while the penalty stays a constant 1/C, so per-sample regularization scales like 1/(C·n) — ten times the rows at fixed C is ~10× weaker regularization.", correct:true},
+          {key:"b", text:"More data legitimately reveals more useful features; a growing support under a stable schema is evidence of discovered signal, not an artifact."},
+          {key:"c", text:"C is proportional to regularization strength, so C=0.1 keeps the same effect at any n; the support growth must come from distribution shift in the migrated rows."},
+          {key:"d", text:"saga's stochastic updates take more steps on larger data and wander further from zero; switching to liblinear restores the previous support size."},
+        ]}
+        trap={<>(b) is a half-truth used as cover: more data CAN legitimately support more features, but a ~4.5× support jump coinciding with an exact 10× data jump — plus NEW overfitting — is the fingerprint of a diluted penalty, not discovery. Interrogate the parameterization before crediting the science.</>}
+        lens={<>Two conventions collide: C is INVERSE strength (bigger C = weaker penalty), and LogisticRegression does not scale its penalty by n — unlike sklearn's Lasso, whose data term carries 1/(2n). Even inside sklearn, Ridge's alpha is unscaled too, so "the same alpha" means different strengths across estimators and dataset sizes. Keeping effective regularization constant across data growth means rescaling C (or λ) with n — or re-tuning per retrain, which is what the quiet failure skipped.</>}
+        stretch={<>glmnet's lambda IS per-sample scaled. What happens if you port a tuned glmnet lambda verbatim into sklearn Ridge's alpha?</>}
+      />
+
+      {/* E6 — selection + scaling leakage (multi) */}
+      <VIS.TrapProblem
+        id="l1l2g-p18"
+        difficulty="hard"
+        multiSelect
+        title="Which steps in this workflow corrupt the CV estimate?"
+        scenario={<>A notebook for a biomarker study (n=180, d=21,000) runs, in order: (1) StandardScaler fit on ALL 180 samples; (2) LassoCV on ALL samples to choose a 34-feature support; (3) a RandomForest trained on those 34 features, evaluated with fresh 5-fold CV, reported AUC 0.88. Select every step that inflates the reported number.</>}
+        options={[
+          {key:"a", text:"Step 1: full-data means/stds leak fold statistics — and both L1's and L2's effective per-feature strength depends on that scaling, so even the support itself shifts.", correct:true},
+          {key:"b", text:"Step 2: lasso admits features by the dead-zone test |xⱼᵀr| ≥ nλ computed over ALL 180 rows — a max over 21,000 noisy correlations that has already consulted every future validation fold.", correct:true},
+          {key:"c", text:"Step 3 in itself: a RandomForest can never be validly evaluated on features chosen by a linear model, because the selection bias is specific to the model family that selected."},
+          {key:"d", text:"Nothing is wrong: the final CV in step 3 uses splits the RandomForest never trained on, which isolates the evaluation from however the features were chosen upstream."},
+        ]}
+        trap={<>(d) is the belief that produced a generation of unreproducible d≫n results: "the last CV is clean." Upstream leakage is not washed out downstream — the 34 features already encode information about every sample, including each future validation fold. At n=180, d=21,000, full-data selection can push pure noise to AUC 0.85+.</>}
+        lens={<>Why is this leak so violent specifically for lasso-style selection at d≫n? Because admission is a MAX-statistic: the dead-zone threshold keeps whichever of 21,000 features have the largest |xⱼᵀr| on these exact 180 rows — and the maximum of 21,000 noisy correlations is enormous by luck alone. Even the tuning grid is contaminated: λ_max = maxⱼ|xⱼᵀy|/n changes when a fold is held out. The rule that survives: the ENTIRE pipeline — scaler → selector → model — lives inside the CV loop, refit per fold (nested if λ is tuned). (c) is the red herring — cross-model selection is fine IF it happens per fold.</>}
+        stretch={<>Why is this failure mode systematically worse for data-driven selection at d≫n than for a domain-knowledge feature list of the same size?</>}
+      />
+
+      {/* B2 — L1 always better in high-d */}
+      <VIS.TrapProblem
+        id="l1l2g-p19"
+        difficulty="hard"
+        title="60,000 genetic variants, 'obviously a job for lasso'"
+        scenario={<>Disease-risk score from d=60,000 genetic variants, n=15,000. Domain literature says the trait is highly <VIS.Term def="Driven by very many genetic variants, each contributing a tiny effect — the opposite of a few large-effect genes.">polygenic</VIS.Term>: thousands of variants each carry a tiny effect, with strong correlations inside genomic regions, and the achievable signal-to-noise is low. A reviewer insists: "d is huge — L1 is the standard choice for high-dimensional problems."</>}
+        options={[
+          {key:"a", text:"High d is not the criterion — sparsity of the TRUTH is. A dense many-small-effects target at low SNR is ridge territory; hard zeros amputate real weak signals here.", correct:true},
+          {key:"b", text:"The reviewer is right: with d four times n, only L1 makes the problem well-posed — ridge would be unidentifiable with more features than samples."},
+          {key:"c", text:"Lasso is preferred because at low SNR its zeros act as denoising, removing variants whose effects cannot be estimated reliably anyway."},
+          {key:"d", text:"Use lasso for its built-in support ceiling: capping active variants at n=15,000 is a safeguard well matched to noisy genomic data."},
+        ]}
+        trap={<>(c) flips the empirical record: when the truth is dense, hard-zeroing weak-but-real effects amputates most of the total signal precisely because it is spread thin. Zeros denoise when the truth is sparse; they destroy when it is not — the regime split made explicit in Hastie–Tibshirani–Tibshirani's best-subset/lasso/ridge comparison.</>}
+        lens={<>The penalty encodes a bet about the effect-size distribution: the corner geometry (Laplace prior) bets on a few large coefficients and exact zeros elsewhere; the ball (Gaussian prior) bets everything is small. Polygenic prediction — the ridge/BLUP tradition in genetics — is the canonical dense case, and (b) is exactly backwards: ridge is unique and well-posed for any positive λ (its Hessian gains λI), while it is LASSO whose support saturates at n. Dimensionality decides your compute strategy; the truth's sparsity decides your penalty.</>}
+        stretch={<>What would an elastic-net l1_ratio sweep give you here as a diagnostic — what does it mean if CV keeps pushing l1_ratio toward 0?</>}
+      />
+
+      {/* B3 — stakeholder pitch anchored in mechanism */}
+      <VIS.TrapProblem
+        id="l1l2g-p20"
+        difficulty="hard"
+        title="Pitch the L1 migration so the mechanism carries the business case"
+        scenario={<>Your ranking feature service computes 1,900 features per request across 11 upstream jobs and 3 vendor calls; p95 feature latency is 41ms of a 60ms budget, and the feature store bill is $110k/month. You believe an L1-regularized rescoring model holds AUC within 0.3% using a fraction of the features. The VP pushes back: "We already regularize with L2 — why does swapping the REGULARIZER unlock savings? Just use the small L2 weights to cut features." Pick the pitch that survives scrutiny.</>}
+        options={[
+          {key:"a", text:"An exact zero is a deletion contract: every zeroed feature's upstream computation — vendor calls, joins, monitoring — can be decommissioned. L2's 1,900 small-but-live weights keep every pipeline running.", correct:true},
+          {key:"b", text:"L1 is the more principled regularizer with stronger theoretical recovery guarantees, so the migration cuts cost while future-proofing the modeling stack against the next platform review."},
+          {key:"c", text:"L1 models are smaller and faster at inference — sparse linear algebra multiplies far fewer numbers per request, which directly recovers most of the 41ms feature-latency budget."},
+          {key:"d", text:"L1 removes redundant correlated features, improving accuracy under multicollinearity — so the migration captures the cost win and a modest AUC lift at the same time."},
+        ]}
+        trap={<>(c) is numerate-sounding and wrong about where the money is: a 1,900-dim dot product costs microseconds — the 41ms and the $110k are feature FETCHING and COMPUTING. A weight of exactly 0 licenses deleting that upstream work; a weight of 1e-4 does not. That zero/nonzero contract, not FLOP count, is the business case.</>}
+        lens={<>The pitch is the geometry monetized: corners → exact zeros → a machine-verifiable list of features the model provably ignores → decommission their pipelines, contracts, and monitoring. Volunteer the honest caveat: if inputs arrive as one dense embedding, weight sparsity deletes nothing upstream and the case collapses. A pitch that still works with "L1" swapped for any other buzzword was never about L1 — this one stops working the moment zeros stop being exact.</>}
+        stretch={<>Which single artifact do you hand the infra team to act on, and why must it come from a stability-selection run rather than one fit?</>}
+      />
+
+      {/* B4 — one-hot shredding / group lasso */}
+      <VIS.TrapProblem
+        id="l1l2g-p21"
+        difficulty="hard"
+        title="Plain L1 shredded the state variable"
+        scenario={<>An insurance pricing model <VIS.Term def="Encoding a categorical variable as one binary column per level (state_CA, state_NY, ...), with one level held out as the reference baseline.">one-hot encodes</VIS.Term> <code>state</code> (50 dummies) alongside 400 numeric features. Plain lasso keeps 17 of the 50 state dummies. Actuaries object on two grounds: 33 states silently collapse onto the reference state's baseline, and re-running with a different reference level changed WHICH states survived.</>}
+        options={[
+          {key:"a", text:"Plain L1 treats each dummy as an unrelated coordinate — levels get zeroed individually, reference-coding-dependent. Selecting the categorical as a UNIT is group lasso's job.", correct:true},
+          {key:"b", text:"The result is a finding: 33 zeroed levels means those states genuinely share baseline risk, and the reference-level sensitivity just reflects small-sample states near the decision boundary."},
+          {key:"c", text:"L2-regularize only the state dummies and keep L1 on the numeric features — smooth shrinkage removes the coding dependence while preserving sparsity where it matters."},
+          {key:"d", text:"One-hot is the mistake: encode state as a single integer feature so lasso faces one coefficient, restoring both continuity and coding invariance."},
+        ]}
+        trap={<>(c) quietly abandons the requirement: with L2 on the dummies, the state variable is never removable — all 50 levels stay small-but-live, the state lookup runs forever, and you still cannot answer "does state matter?" with a yes/no. It fixes coding sensitivity by giving up group-level selection instead of achieving it.</>}
+        lens={<>The unit of selection should match the unit of meaning. Group lasso's penalty Σ_g ||w_g||₂ (norms unsquared, √group-size weights) is L1 at the group level and rotation-invariant inside each group: whole categorical in or out, invariant to reference coding, with the 50-dummy state group competing fairly against 1-column numerics. (d) invents a fake ordering on states; (b) mistakes a coding artifact for a discovery — the survivors changed when the coding did, which is the tell it was never a finding.</>}
+        stretch={<>Sparse group lasso adds a within-group L1 term on top. What business question would make that the right penalty for state?</>}
+      />
+
+      {/* C5/B — scale sensitivity 1/c vs 1/c² */}
+      <VIS.TrapProblem
+        id="l1l2g-p22"
+        difficulty="medium"
+        title="One column switched from meters to millimeters — which penalty punishes it more?"
+        scenario={<>A vendor silently changes <code>parcel_length</code> from meters to millimeters (values ×1000). Nothing else changes, and you retrain a lasso and a ridge WITHOUT standardization. For predictions to stay the same, that feature's coefficient must shrink ×1000. What happens to the price each penalty charges for this feature's contribution?</>}
+        options={[
+          {key:"a", text:"Its L1 charge drops ×1000 but its L2 charge drops ×1,000,000 — the feature becomes nearly free (absurdly so for ridge) and absorbs outsized weight.", correct:true},
+          {key:"b", text:"Neither is affected: penalties act on the feature's CONTRIBUTION w·x, which the unit change leaves exactly invariant."},
+          {key:"c", text:"L1 is hit harder: the full ×1000 lands linearly on |w|, while squaring first lets L2 rebalance the pressure across features automatically."},
+          {key:"d", text:"Both charges drop by exactly ×1000, since both penalties are functions of the same coefficient — the two models mis-scale identically."},
+        ]}
+        trap={<>(b) is the trap for people who correctly remember that ORDINARY least squares is scale-equivariant (it is — the coefficient absorbs the unit change and predictions are untouched). Penalized regression breaks exactly that: the penalty sees w alone, never w·x, so unit changes redistribute regularization pressure across features.</>}
+        lens={<>Coefficient scales as 1/c → its L1 share scales as 1/c but its L2 share as 1/c². A small-unit feature becomes nearly free to use, and regularization starts allocating capacity by UNITS instead of by signal. Hence standardization is part of the model, not hygiene — and the stacks disagree: glmnet standardizes internally by default (back-transforming for you); sklearn's Lasso/Ridge do not (the old normalize flag was deprecated in 1.0 and removed in 1.2). Porting code between them silently changes the model.</>}
+        stretch={<>Where must the scaler live so this stays leak-free under cross-validation?</>}
+      />
+
+      {/* A3 — L0 relaxation / best subset */}
+      <VIS.TrapProblem
+        id="l1l2g-p23"
+        difficulty="hard"
+        title="If we can solve best subset now, is lasso obsolete?"
+        scenario={<>A colleague returns from a conference: "Best subset — the true L0 objective — is now solvable by mixed-integer optimization at thousands of features. Lasso was always just the computable approximation; with the real thing available at our d=800, keeping lasso is engineering laziness." Your problem has moderate <VIS.Term def="Signal-to-noise ratio: how much of the target's variation is explainable versus irreducible noise.">SNR</VIS.Term> at best.</>}
+        options={[
+          {key:"a", text:"L1 is L0's convex relaxation, but its shrinkage is variance control, not approximation error — at low-to-moderate SNR best subset loses to lasso. The regimes split by SNR, not compute.", correct:true},
+          {key:"b", text:"Correct — L0 dominates whenever computable, since it optimizes the true objective that L1 only approximates; lasso survives purely as a large-d fallback."},
+          {key:"c", text:"Best subset remains NP-hard, so the claim fails on its face: MIO solvers return heuristic supports with no optimality certificate at d=800."},
+          {key:"d", text:"The choice is immaterial: whenever the truth is sparse, both methods select the same support and differ only in how much they shrink the surviving coefficients."},
+        ]}
+        trap={<>(b) assumes "truer objective → better estimator" — the classic optimization/statistics conflation. The L0 objective is truer to the SELECTION ideal, but its unshrunken fits have higher variance exactly when noise is high; lasso's built-in shrinkage earns its keep at low SNR (and ridge takes the bottom of the range).</>}
+        lens={<>Convexity buys more than tractability: the corner geometry couples selection WITH shrinkage, a variance-control device L0 lacks. Hastie–Tibshirani–Tibshirani's comparison: high SNR + genuinely sparse truth → best subset shines; low SNR → lasso, then ridge. (c) is out of date — Bertsimas et al. brought certified MIO solutions to the thousands — which is what makes the statistical answer, not the computational one, the load-bearing part.</>}
+        stretch={<>Relaxed lasso and debiased lasso attack the shrinkage from the other side. When are those the right tool instead of L0?</>}
+      />
+
+      {/* D — Bayesian mode vs mean */}
+      <VIS.TrapProblem
+        id="l1l2g-p24"
+        difficulty="hard"
+        title="The 'fully Bayesian lasso' produced zero exact zeros"
+        scenario={<>A statistician upgrades your lasso to a proper Bayesian treatment: same Laplace prior, full <VIS.Term def="Markov chain Monte Carlo: drawing many samples from the posterior distribution to approximate it, rather than finding its single peak.">MCMC</VIS.Term> sampling, posterior MEAN as the point estimate — expecting the famous sparsity plus uncertainty for free. The posterior mean has NO zero coordinates: every one of 2,000 features gets a tiny nonzero weight. They suspect a sampler bug.</>}
+        options={[
+          {key:"a", text:"No bug: lasso is the posterior MODE. A continuous prior puts zero mass at wⱼ=0, so the mean averages never-exactly-zero draws — sparsity belonged to the peak.", correct:true},
+          {key:"b", text:"The Laplace prior's spike at zero guarantees every posterior summary is sparse; a dense posterior mean means the chain never mixed into the corner regions of the posterior."},
+          {key:"c", text:"Floating-point MCMC cannot represent exact zeros in finite chains; running the sampler longer at higher numeric precision progressively recovers the sparse mean."},
+          {key:"d", text:"The prior scale was mismatched to λ; setting it by the exact MAP correspondence makes the posterior mean reproduce the lasso zeros."},
+        ]}
+        trap={<>(b) and (d) assume "Laplace prior ⇒ sparse Bayesian answer." The <VIS.Term def="Maximum a posteriori: the single most probable parameter value — the posterior's peak, found by optimization rather than averaging.">MAP</VIS.Term>–lasso correspondence is real (Park &amp; Casella's Bayesian lasso is built on it), but it is a statement about ONE point of the posterior — its peak. Integration smooths the corner away at any prior scale; no tuning restores it.</>}
+        lens={<>Optimization finds corners; integration averages over them. A continuous prior puts zero MASS on the corner, so only mode-seeking inherits the kink's sparsity. Posterior-mean sparsity needs priors with genuine mass or extreme density at zero — spike-and-slab's point mass, or the horseshoe's infinite density (aggressive shrinkage, still no exact-zero mean) — or an explicit decision rule on top. "Bayesian lasso" buys uncertainty quantification, not free zeros.</>}
+        stretch={<>The horseshoe is prized for leaving LARGE coefficients nearly untouched. Which lasso pathology is that contrast aimed at?</>}
+      />
+
+      {/* F5/C3 — shrinkage bias + named fixes */}
+      <VIS.TrapProblem
+        id="l1l2g-p25"
+        difficulty="hard"
+        title="Every surviving coefficient is biased low — by the same amount"
+        scenario={<>An econometrician audits your lasso demand model by refitting plain OLS on just the selected features. Pattern: the lasso coefficients are systematically closer to zero, and for the LARGEST coefficients the gap is roughly constant (about the penalty level) rather than proportional to the coefficient's size. They ask you to explain the pattern and name a principled fix that keeps selection.</>}
+        options={[
+          {key:"a", text:"Soft-thresholding subtracts ≈λ from every survivor — constant-offset bias that taxes even huge real effects. Keep-selection fixes: relaxed lasso (refit on support) or SCAD/MCP.", correct:true},
+          {key:"b", text:"The gap is sampling noise: penalized and unpenalized estimates differ by order 1/√n in every direction across refits, with no systematic sign for an audit to explain."},
+          {key:"c", text:"This is ridge-style proportional shrinkage; the constant-looking gap on large coefficients is an artifact of reading raw scale instead of log scale."},
+          {key:"d", text:"The OLS refit is the biased side: dropping the penalty reintroduces the overfitting lasso removed, so its larger coefficients are inflated rather than correct."},
+        ]}
+        trap={<>(d) deploys a real half-truth (post-selection OLS does inherit selection noise, and its coefficients can be somewhat inflated) to explain away a signature it cannot produce: selection effects inflate erratically, not by a uniform ≈λ offset concentrated on the largest effects. The constant offset is soft-thresholding's fingerprint — S(z,λ) = z − λ·sign(z) once |z| clears the threshold.</>}
+        lens={<>L1's constant force is a double-edged sword: it zeros the small (the feature you wanted) and keeps taxing the large (the bias you did not). SCAD and MCP engineer the penalty's derivative to decay to zero for large |w| — select like lasso, estimate big effects nearly like OLS — at the price of non-convexity; adaptive lasso approximates the same with convex per-fit reweighting; relaxed lasso just refits. Diagnostic skill this problem drills: constant-offset bias means L1 shrinkage, proportional bias means L2 — you can tell which penalty touched a model from its coefficient audit alone.</>}
+        stretch={<>Why do those debiasing fixes matter MORE when the model's coefficients feed a pricing decision than when it is a pure ranker?</>}
+      />
+
     </VIS.Section>
   </main>
 );
