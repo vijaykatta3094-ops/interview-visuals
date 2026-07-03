@@ -2001,7 +2001,7 @@ const App = () => (
 
     <VIS.Section id="sec-drill" title="Test yourself — concept drill">
       <p style={{color:"#475569", marginBottom: 12}}>
-        Twenty-five trap problems covering identity (what counts as overfit), application (which fix and in what order), mechanism (why each fix works), intuition traps (looks like overfit but isn't), operations (running the diagnostic in practice), and failure modes (when the standard playbook misfires). Each scenario carries more context than strictly needed.
+        Twenty-three trap problems covering identity (what counts as overfit), application (which fix and in what order), mechanism (why each fix works), intuition traps (looks like overfit but isn't), operations (running the diagnostic in practice), and failure modes (when the standard playbook misfires). Each scenario carries more context than strictly needed.
       </p>
 
       <VIS.TrapProblem
@@ -2260,23 +2260,7 @@ const App = () => (
         stretch={<>What's the right metric to monitor when train is harder than val?</>}
       />
 
-      <VIS.TrapProblem
-        id="od-q17"
-        difficulty="hard"
-        title="Why might cross-validation give an optimistic estimate even with proper K folds?"
-        scenario={<><em>Discriminating insight:</em> K-fold is supposed to protect against overfit, but a senior team still got burned. Identify the operational failure.</>}
-        options={[
-          {key:"a", text:"K-fold averages errors across folds, mathematically lowering the variance estimate below the true generalization variance.", correct:false},
-          {key:"b", text:"K-fold uses stratification, and stratification injects label information into the split through the class balance.", correct:false},
-          {key:"c", text:"Hyperparameter search ran 300 trials adapting to fold scores, so the model selection trained implicitly on the val signal.", correct:true},
-          {key:"d", text:"K-fold reports the mean of fold scores, while the median would be the unbiased estimator for skewed fold distributions.", correct:false},
-        ]}
-        trap={<>(a) confuses error averaging with the variance of the generalization estimate. (b) misunderstands stratification — it preserves class balance and leaks no labels. (d) is a made-up statistical claim.</>}
-        lens={<>The CV folds become a 'training signal' for hyperparameter search. With enough trials, the search exploits fold-level noise and the reported CV score overstates true generalization. Fix: nested CV, or hold out a final pre-test set the HPO never touches.</>}
-        stretch={<>How small does the held-out final set need to be to give a meaningful confidence interval?</>}
-      />
-
-      <VIS.TrapProblem
+<VIS.TrapProblem
         id="od-q18"
         difficulty="medium"
         title="What does 'early stopping' actually save?"
@@ -2308,23 +2292,7 @@ const App = () => (
         stretch={<>What single check rules out 'optimizer hasn't moved'?</>}
       />
 
-      <VIS.TrapProblem
-        id="od-q20"
-        difficulty="hard"
-        title="L1 vs L2 regularization: which is preferable when you suspect many features are irrelevant?"
-        scenario={<><em>Discriminating insight:</em> the question is which mechanism performs feature selection, distinct from which generalizes better overall. Pick the geometric reason.</>}
-        options={[
-          {key:"a", text:"L2, because the smooth quadratic penalty shrinks all weights uniformly and removes the bad ones first.", correct:false},
-          {key:"b", text:"L1, because its diamond-shaped constraint region has corners on the axes; optimal solutions tend to sit on those corners, zeroing entire features.", correct:true},
-          {key:"c", text:"L2, because the L2 ball has no corners, so the optimum is always strictly inside and feature importance is preserved.", correct:false},
-          {key:"d", text:"L1 and L2 are equivalent under sufficient regularization strength — pick whichever is faster to tune.", correct:false},
-        ]}
-        trap={<>(a) and (c) describe L2 behavior but draw the wrong conclusion. (d) is false; the two have fundamentally different geometry.</>}
-        lens={<>L1 = Σ|w|; the constraint region is an axis-aligned diamond with corners ON the coordinate axes. Optimal solutions snap to those corners, setting whole coefficients to exactly zero — implicit feature selection. L2 = Σw²; round ball, no corners, all coefficients stay slightly nonzero.</>}
-        stretch={<>What does elastic net do that pure L1 doesn't?</>}
-      />
-
-      <VIS.TrapProblem
+<VIS.TrapProblem
         id="od-q21"
         difficulty="medium"
         title="A senior says 'just retrain for more epochs and overfit will go away.' True or false?"
