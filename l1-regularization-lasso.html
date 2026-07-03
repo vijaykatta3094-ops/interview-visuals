@@ -2402,8 +2402,8 @@ flowchart LR
         options={[
           {key:"a", text:"Identity-minus-step: w − α·sign(w), applied unconditionally to every coordinate."},
           {key:"b", text:"The hard-threshold: keep w if |w| > α, else set w to zero — this matches the geometric corner story exactly."},
-          {key:"c", text:"The soft-threshold: sign(w) · max(|w| − α, 0), which shrinks toward zero and snaps anything inside ±α to exactly zero.", correct:true},
-          {key:"d", text:"The sigmoid σ(w/α), which smoothly interpolates between zero and w as α decreases."},
+          {key:"c", text:"The soft-threshold: sign(w) · max(|w| − α, 0) — it shrinks toward zero and snaps anything inside ±α to exactly zero.", correct:true},
+          {key:"d", text:"The sigmoid σ(w/α), which smoothly interpolates between a value of zero and w itself as the strength α decreases."},
         ]}
         trap={<>(a) is what you might guess from differentiating |w| naively. (b) is the prox of the L0 "norm", not L1. (d) is unrelated to convex proximal calculus.</>}
         lens={<>Soft-thresholding: <code>prox_{`{α|·|}`}(w) = sign(w)·max(|w|−α, 0)</code>. Anything inside the band <code>[-α, α]</code> snaps to zero; everything else moves α closer to zero. ISTA = gradient step on the smooth loss, then per-coordinate soft-threshold.</>}
@@ -2449,7 +2449,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> dense-truth regimes punish L1's sparsity bias. You compare Lasso and Ridge on a controlled simulation; Ridge wins on test MSE.</>}
         options={[
           {key:"a", text:"L1 always beats L2 when features outnumber samples, so the result must be a bug in the simulation."},
-          {key:"b", text:"The true coefficient vector is dense — every feature carries some signal — so L1's pressure to zero coefficients introduces unnecessary bias.", correct:true},
+          {key:"b", text:"The true coefficient vector is dense — every feature carries signal — so L1's pressure to zero coefficients adds bias.", correct:true},
           {key:"c", text:"Ridge is computationally faster, so its CV-selected hyperparameter is better tuned than the L1 hyperparameter."},
           {key:"d", text:"Ridge uses orthogonal features by default, which gives it an unfair structural advantage over Lasso."},
         ]}
@@ -2482,8 +2482,8 @@ flowchart LR
         options={[
           {key:"a", text:"The subgradient at zero is the singleton {0}, the natural limit of derivatives from either side."},
           {key:"b", text:"The subgradient at zero is the open interval (-1, 1); the closed endpoints correspond to non-stationary points."},
-          {key:"c", text:"The subgradient at zero is empty because the absolute-value function is not classically differentiable there."},
-          {key:"d", text:"The subgradient at zero is the closed interval [-1, 1]; optimality requires the negative data-fit gradient to lie in α times this interval.", correct:true},
+          {key:"c", text:"The subgradient at zero is the empty set, because the absolute-value function is not classically differentiable at that point."},
+          {key:"d", text:"The subgradient at zero is the closed interval [-1, 1]; optimality needs the data-fit gradient to lie within α times it.", correct:true},
         ]}
         trap={<>(a) averages the two one-sided slopes, which loses the set structure. (b) excludes endpoints that the convex-analysis definition includes. (c) confuses non-differentiable with non-subdifferentiable.</>}
         lens={<>For <code>f(w) = |w|</code>, the subdifferential at zero is <code>[−1, 1]</code>. KKT optimality at <code>wⱼ = 0</code> reads <code>−∂L_fit/∂wⱼ ∈ α·[−1, 1]</code> — the data-fit gradient must fit inside the penalty's slack interval, which is exactly the condition for the coordinate to stay zero.</>}
@@ -2561,7 +2561,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> structured sparsity at the level of feature groups, distinct from individual-coefficient sparsity. You one-hot-encode a categorical with 17 levels and want the entire categorical either in or out of the model.</>}
         options={[
           {key:"a", text:"Plain Lasso suffices because L1 will keep at most one one-hot column when the variable is uninformative."},
-          {key:"b", text:"Group Lasso replaces <code>Σ|wⱼ|</code> with <code>Σ_g ||w_g||₂</code>, zeroing entire groups together rather than picking individual columns inside a group.", correct:true},
+          {key:"b", text:"Group Lasso replaces <code>Σ|wⱼ|</code> with <code>Σ_g ||w_g||₂</code>, zeroing whole groups together instead of individual columns.", correct:true},
           {key:"c", text:"Group Lasso adds an L1 penalty on the group means but lets within-group sparsity follow ordinary Lasso's behavior."},
           {key:"d", text:"Group Lasso applies an L0 penalty per group and an L1 penalty within each group, combining both into a single mixed objective."},
         ]}
@@ -2577,9 +2577,9 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> the oracle property — consistent selection without the irrepresentability condition. A reviewer asks why your method beats vanilla Lasso for asymptotic recovery.</>}
         options={[
           {key:"a", text:"It scales α with sample size, allowing the penalty to vanish asymptotically and yield unbiased coefficients."},
-          {key:"b", text:"It adapts α per fold during cross-validation, removing variance in the final hyperparameter choice."},
+          {key:"b", text:"It adapts α separately per fold during cross-validation, removing the variance in the final chosen hyperparameter value."},
           {key:"c", text:"It learns the weights via a meta-gradient on the validation loss, treating the regularizer as a hyperparameter network."},
-          {key:"d", text:"It weights each coefficient's penalty inversely to a pilot estimate, achieving the oracle property without requiring the irrepresentability condition.", correct:true},
+          {key:"d", text:"It weights each coefficient's penalty inversely to a pilot estimate, gaining the oracle property without the irrepresentability condition.", correct:true},
         ]}
         trap={<>(a) describes one ingredient (decaying α) but misses the per-coordinate reweighting. (b) describes a CV trick. (c) imports a meta-learning idea that is foreign to adaptive Lasso.</>}
         lens={<>Adaptive Lasso uses <code>α · Σ |wⱼ|/|ŵⱼ|^γ</code> where <code>ŵⱼ</code> is a pilot estimate (typically OLS or Ridge). Coefficients with large pilots are barely penalized; near-zero pilots are crushed. The result: oracle-property consistency without irrepresentability.</>}
@@ -2592,7 +2592,7 @@ flowchart LR
         title="Q22 — Warm starts along the regularization path"
         scenario={<><em>Discriminating insight:</em> reusing previous solutions exploits piecewise-linearity beyond plain continuity. You compute the full Lasso path over 100 values of α; the production library does it 50× faster than naive cold-starts.</>}
         options={[
-          {key:"a", text:"Each α is solved by reusing the solution at the previous α as a warm start; the path is nearly piecewise-linear so updates are tiny.", correct:true},
+          {key:"a", text:"Each α reuses the previous α's solution as a warm start; the path is near piecewise-linear so updates are tiny.", correct:true},
           {key:"b", text:"The library precomputes a closed-form solution at α = 0 and analytically shifts it for every other α."},
           {key:"c", text:"It batches all α values into a single tensor and solves them in parallel with a custom GPU kernel."},
           {key:"d", text:"It approximates the path by interpolating between two anchor solutions at α_max and α_min."},
@@ -2609,7 +2609,7 @@ flowchart LR
         scenario={<><em>Discriminating insight:</em> a model can be a great predictor and an unreliable feature-selector at the same time. Your stakeholder asks if they can read the surviving Lasso features as a causal story.</>}
         options={[
           {key:"a", text:"Yes — any feature with nonzero Lasso coefficient is statistically guaranteed to be causally relevant to the outcome."},
-          {key:"b", text:"No, with caveats — Lasso optimizes predictive risk; the active set under correlation and design-matrix violations can be unreliable as a causal claim.", correct:true},
+          {key:"b", text:"No, with caveats — Lasso optimizes predictive risk, so under correlation its active set can be unreliable as a causal claim.", correct:true},
           {key:"c", text:"Yes — Lasso's L1 penalty is equivalent to a causal-discovery procedure as long as cross-validation picks α."},
           {key:"d", text:"No — Lasso's predictions are also unreliable whenever the active set is unstable across resamples."},
         ]}
